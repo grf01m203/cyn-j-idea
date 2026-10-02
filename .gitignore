@@ -1,11 +1,8 @@
-
 # IDEA
 .idea/
 *.iml
 out/
 target/
-#Java
-*.class
-*.jar
-*.war
-*.log
+# OS
+.DS_Store
+Thumbs.db
