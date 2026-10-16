@@ -1,0 +1,27 @@
+[Unit]
+Description=CampusVenue 校园场馆预约与拼场组队系统 API
+After=network.target mysqld.service
+Wants=mysqld.service
+
+[Service]
+Type=simple
+User=campus
+Group=campus
+WorkingDirectory=/opt/campus-venue
+# 生产配置：数据库口令、签到密钥等通过环境变量注入，不要写进代码仓库
+EnvironmentFile=/opt/campus-venue/campus-venue.env
+ExecStart=/usr/bin/java -Xms512m -Xmx1024m -jar /opt/campus-venue/campus-venue-server.jar --spring.profiles.active=prod
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/var/log/campus-venue/stdout.log
+StandardError=append:/var/log/campus-venue/stderr.log
+
+# 基础安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/campus-venue /var/log/campus-venue
+
+[Install]
+WantedBy=multi-user.target
