@@ -1,0 +1,124 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/venue/list",
+      "style": {
+        "navigationBarTitleText": "场馆列表",
+        "enablePullDownRefresh": true,
+        "onReachBottomDistance": 80
+      }
+    },
+    {
+      "path": "pages/venue/detail",
+      "style": {
+        "navigationBarTitleText": "场馆详情"
+      }
+    },
+    {
+      "path": "pages/reservation/list",
+      "style": {
+        "navigationBarTitleText": "我的预约",
+        "enablePullDownRefresh": true,
+        "onReachBottomDistance": 80
+      }
+    },
+    {
+      "path": "pages/reservation/detail",
+      "style": {
+        "navigationBarTitleText": "预约详情"
+      }
+    },
+    {
+      "path": "pages/checkin/index",
+      "style": {
+        "navigationBarTitleText": "签到"
+      }
+    },
+    {
+      "path": "pages/team/list",
+      "style": {
+        "navigationBarTitleText": "拼场广场",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/team/detail",
+      "style": {
+        "navigationBarTitleText": "拼场详情"
+      }
+    },
+    {
+      "path": "pages/queue/list",
+      "style": {
+        "navigationBarTitleText": "我的候补",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/notice/list",
+      "style": {
+        "navigationBarTitleText": "消息中心",
+        "enablePullDownRefresh": true,
+        "onReachBottomDistance": 80
+      }
+    },
+    {
+      "path": "pages/mine/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "CampusVenue",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F5F6F8"
+  },
+  "tabBar": {
+    "color": "#8a9099",
+    "selectedColor": "#1677ff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/venue/list",
+        "text": "场馆",
+        "iconPath": "static/tabbar/venue.png",
+        "selectedIconPath": "static/tabbar/venue-active.png"
+      },
+      {
+        "pagePath": "pages/reservation/list",
+        "text": "预约",
+        "iconPath": "static/tabbar/reservation.png",
+        "selectedIconPath": "static/tabbar/reservation-active.png"
+      },
+      {
+        "pagePath": "pages/team/list",
+        "text": "拼场",
+        "iconPath": "static/tabbar/team.png",
+        "selectedIconPath": "static/tabbar/team-active.png"
+      },
+      {
+        "pagePath": "pages/notice/list",
+        "text": "消息",
+        "iconPath": "static/tabbar/notice.png",
+        "selectedIconPath": "static/tabbar/notice-active.png"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的",
+        "iconPath": "static/tabbar/mine.png",
+        "selectedIconPath": "static/tabbar/mine-active.png"
+      }
+    ]
+  },
+  "uniIdRouter": {}
+}
