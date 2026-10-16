@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+    <title>CampusVenue 校园场馆预约</title>
+    <script>
+      // uni-app H5 通过根节点 font-size 实现 rpx 换算，rem 基准固定为 20px：
+      // 1rpx = 1rem / 40 = (fontSize / 20) / 40 px，因此 width=375 时 1rpx = 0.5px（即 750rpx 设计稿铺满屏宽）。
+      // 不设置该基准时，rpx 会比设计稿大 1.37 倍，导致页面元素横向溢出。
+      ;(function () {
+        var docEl = document.documentElement
+        function setRemUnit() {
+          var width = docEl.clientWidth || window.innerWidth
+          docEl.style.fontSize = width / 20 + 'px'
+        }
+        setRemUnit()
+        window.addEventListener('resize', setRemUnit)
+        window.addEventListener('pageshow', function (e) {
+          if (e.persisted) setRemUnit()
+        })
+      })()
+    </script>
+    <script>
+      var coverSupport =
+        'CSS' in window &&
+        typeof CSS.supports === 'function' &&
+        (CSS.supports('top: env(a)') || CSS.supports('top: constant(a)'))
+      document.write(
+        '<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,minimum-scale=1.0,user-scalable=no' +
+          (coverSupport ? ',viewport-fit=cover' : '') +
+          '" />'
+      )
+    </script>
+    <link rel="stylesheet" href="./src/static/index.css" />
+  </head>
+  <body>
+    <div id="app"><!--app-html--></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

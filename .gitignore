@@ -1,8 +1,43 @@
-# IDEA
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!**/mvn/wrapper/maven-wrapper.jar
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# ---- 本地配置与密钥（严禁提交） ----
+application-prod.yml
+application-local.yml
+*.env
+.env
+deploy/.env
+
+# ---- 运行时产物 ----
+logs/
+*.log
+data/
+upload/
+/opt/
+backup/
+
+# ---- 验证/调试临时产物（保留 docs/verification/screenshots 作为验收证据）----
+.dsh-verify/
+.edge-tmp*/
+.e2e-shots/
+/screenshots/
+checks.json
+
+# ---- IDE / 系统 ----
 .idea/
 *.iml
-out/
-target/
-# OS
+.vscode/
 .DS_Store
 Thumbs.db

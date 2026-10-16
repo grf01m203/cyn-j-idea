@@ -1,0 +1,37 @@
+# 生产环境配置示例：部署时复制为 application-prod.yml 并填写真实值（不要提交到仓库）
+server:
+  port: 8080
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/campus_venue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:campus}
+    password: ${DB_PASSWORD:change-me}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+sa-token:
+  is-log: false
+
+campus:
+  checkin:
+    secret: ${CHECKIN_SECRET:change-me-in-production}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  file:
+    name: /var/log/campus-venue/campus-venue.log
+  level:
+    root: info
+    com.campus.venue: info
