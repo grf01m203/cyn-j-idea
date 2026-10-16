@@ -28,6 +28,13 @@ cd campus-venue
 | `feature/<模块>-<姓名拼音>` | 个人开发 | 例：`feature/reservation-zhangsan`，**一人一分支，禁止交叉提交** |
 | `hotfix/<问题>` | 线上紧急修复 | 从 `main` 拉出，修完同时回合 `main` 与 `develop` |
 
+> **关于 `master`（远程仓库 `cyn-j-idea` 的默认分支，2026-10-16 已并入本项目）**
+> 该分支原本只有 2 个占位提交（`init: java project for IDEA`、`add .gitignore for java idea`）。已通过**非破坏性合并**（`git merge main --allow-unrelated-histories`，**未使用 force push**）把本项目内容并入，原提交历史完整保留；唯一冲突（`.gitignore` 双方新增）按本项目版本解决（旧规则是其子集）。
+> 因此 **`master` 与 `main` 内容完全一致**：`master` 用于 GitHub 默认首页展示，`main` 为团队主分支。合并到 `main` 后同步一次即可：
+> ```bash
+> git push origin main:master
+> ```
+
 ## 三、日常开发流程（每次做一个功能点就重复一遍）
 
 ```bash
