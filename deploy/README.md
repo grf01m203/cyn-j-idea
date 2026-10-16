@@ -4,8 +4,30 @@
 
 | 方案 | 适用场景 | 关键文件 |
 |---|---|---|
-| A：systemd + Nginx（推荐） | 服务器不装 Docker，资源占用最小 | `deploy/systemd/campus-venue.service`、`deploy/nginx/campus-venue.conf` |
+| A：systemd + Nginx（推荐） | 服务器不装 Docker，资源占用最小 | `deploy/systemd/campus-venue.service`、`deploy/nginx/campus-venue.conf`（域名）/ `campus-venue-ip.conf`（IP 直连） |
 | B：Docker Compose | 服务器可装 Docker，一键起 MySQL/Nginx/App | `deploy/docker-compose.yml` |
+
+## 〇、阿里云免费试用 ECS 的部署选型（2026-10-16 实测结论）
+
+**关键约束：阿里云免费试用 ECS 明确"不支持备案"**，因此不能走"域名 + HTTPS"路线（大陆实例用未备案域名访问 80/443 会被拦截）。据此分两条路：
+
+| 路线 | 前提 | 访问方式 | 能否满足课程验收 |
+|---|---|---|---|
+| **A. IP 直连（推荐，试用实例即可）** | 无需域名、无需备案 | `http://<公网IP>/`（学生端）、`/admin/`（管理端）、`/doc.html`（接口文档） | ✅ 满足"项目可通过不同网络访问"（校园网/4G/家宽均可用公网 IP 打开）；H5 与 APK 演示正常 |
+| B. 域名 + HTTPS | **已备案域名 + 支持备案的实例**（付费 ECS / 境内轻量应用服务器） | `https://<域名>/` | ✅ 另可满足微信小程序真机（小程序要求 HTTPS 且域名已备案） |
+
+选购建议（试用页）：
+- 优先 **云服务器 ECS 免费试用（个人版）**，规格选 **2 核 2G 或 2 核 4G**，镜像 **Ubuntu 22.04 64 位**，地域选离学校最近的（如华东 1-杭州）。
+- ⚠️ **不建议**选"轻量应用服务器 2vCPU 1GiB"：内存 1G 同时跑 MySQL 8 + JVM + Nginx 会频繁 OOM。
+- 安全组/防火墙需放行 **22（SSH）、80（HTTP）**；**8080 不必对外开放**（由 Nginx 反代到本机 8080 更安全）。
+
+一键初始化脚本（在服务器上以 root 执行，自动装 JDK17/MySQL8/Nginx、建库、导数据、装 systemd 服务）：
+
+```bash
+# 先把 deploy/ 与 docs/sql/ 上传到服务器，例如 /opt/campus-venue/src
+sudo PROJECT_DIR=/opt/campus-venue SQL_DIR=/opt/campus-venue/src/docs/sql USE_IP_MODE=1 \
+     bash /opt/campus-venue/src/deploy/bootstrap-ubuntu.sh
+```
 
 ---
 
