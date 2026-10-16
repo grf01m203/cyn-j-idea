@@ -101,6 +101,34 @@ npm run build           # 产出 dist
 | `admin` | 场馆管理员 | 场馆/场地/规则维护、预约管理、统计看板 |
 | `sysadmin` | 系统管理员 | 用户管理、信用分调整、统计 |
 
+### 6. 局域网内多设备同时访问（手机 / 平板 / 另一台电脑）
+
+后端与两个前端 dev server 均已监听 `0.0.0.0`，同一 Wi-Fi 下的其它设备可直接访问：
+
+| 端 | 地址（把 IP 换成本机局域网 IP） |
+|---|---|
+| 学生端 H5 | `http://<本机IP>:5273` |
+| 管理端控制台 | `http://<本机IP>:5173` |
+| Spring Boot API | `http://<本机IP>:8080`（接口文档 `/doc.html`） |
+
+查看本机 IP：`ipconfig`（取"无线局域网适配器 WLAN"的 IPv4 地址，例如 172.21.114.232）。
+
+**首次放行需管理员权限**（Windows 默认拦截入站）：
+
+```powershell
+# 以管理员身份运行 PowerShell 后执行一次即可
+New-NetFirewallRule -DisplayName "CampusVenue Dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173,5273,8080 -Profile Any
+```
+
+**并发在线说明**：Sa-Token 配置为 `is-concurrent: true`，同一账号可在多台设备同时登录且互不踢下线；
+两台设备分别登录 `student` 与 `student2`，即可现场演示「一方下单 → 另一方实时收到消息」。
+可用脚本自动验证（Node 18+，使用内置 WebSocket）：
+
+```bash
+node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:8080
+# 覆盖：同账号双设备双 token 在线、双 WebSocket 长连接、拼场邀请实时推送、候补递补实时推送
+```
+
 ---
 
 ## 四、已实现功能
