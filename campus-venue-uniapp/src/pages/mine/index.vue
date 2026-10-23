@@ -2,7 +2,11 @@
   <view class="page">
     <!-- 用户信息卡 -->
     <view class="profile">
-      <view class="avatar">{{ (profile.nickname || auth.nickname || 'U').slice(0, 1) }}</view>
+      <view class="avatar-wrap" @click="chooseAvatar">
+        <image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" mode="aspectFill" />
+        <view v-else class="avatar">{{ (profile.nickname || auth.nickname || 'U').slice(0, 1) }}</view>
+        <text class="avatar-edit" :class="{ uploading }">{{ uploading ? '…' : '📷' }}</text>
+      </view>
       <view class="col flex-1">
         <view class="row">
           <text class="name">{{ profile.nickname || auth.nickname }}</text>
@@ -104,7 +108,9 @@ import StateView from '@/components/StateView.vue'
 import { useAuthStore } from '@/store/auth.js'
 import { useNoticeStore } from '@/store/notice.js'
 import { getCreditLogs } from '@/api/credit.js'
-import { PAGE_SIZE } from '@/config/index.js'
+import { updateAvatar as updateAvatarApi } from '@/api/auth.js'
+import { API_PREFIX, PAGE_SIZE, REQUEST_BASE } from '@/config/index.js'
+import { getToken } from '@/utils/request.js'
 import { formatDateTime, toast } from '@/utils/date.js'
 import { requireLogin } from '@/utils/nav.js'
 
@@ -121,6 +127,8 @@ const logTotal = ref(0)
 const logFinished = ref(false)
 
 const profile = computed(() => auth.profile || auth.user || {})
+const avatarUrl = computed(() => profile.value.avatar || (auth.user && auth.user.avatar) || '')
+const uploading = ref(false)
 const creditClass = computed(() => {
   const s = Number(auth.creditScore)
   if (isNaN(s)) return ''
@@ -137,8 +145,57 @@ const menus = computed(() => [
   { icon: '🏟', label: '场馆列表', url: '/pages/venue/list', badge: false }
 ])
 
-function roleText(r) {
-  if (r === 'STUDENT') return '学生'
+function chooseAvatar() {
+  if (uploading.value) return
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['album', 'camera'],
+    success: (res) => {
+      const filePath = res.tempFilePaths && res.tempFilePaths[0]
+      if (filePath) doUploadAvatar(filePath)
+    },
+    fail: () => {}
+  })
+}
+
+/** 上传头像：uni.uploadFile -> 后端 /api/v1/files/upload（自动走 OSS）-> PUT /auth/avatar */
+function doUploadAvatar(filePath) {
+  uploading.value = true
+  uni.showLoading({ title: '上传中', mask: true })
+  uni.uploadFile({
+    url: `${REQUEST_BASE}${API_PREFIX}/files/upload?dir=avatar`,
+    filePath,
+    name: 'file',
+    header: { Authorization: getToken() },
+    success: async (res) => {
+      let body = {}
+      try {
+        body = JSON.parse(res.data)
+      } catch (e) {
+        body = {}
+      }
+      if (body.code !== 0) {
+        toast(body.message || '头像上传失败')
+        return
+      }
+      try {
+        await updateAvatarApi(body.data.url)
+        await auth.fetchProfile()
+        toast('头像已更新', 'success')
+      } catch (e) {
+        toast('头像保存失败')
+      }
+    },
+    fail: () => toast('上传失败，请检查网络'),
+    complete: () => {
+      uploading.value = false
+      uni.hideLoading()
+    }
+  })
+}
+
+function roleText(r) {  if (r === 'STUDENT') return '学生'
   if (r === 'VENUE_ADMIN') return '场馆管理员'
   if (r === 'SYS_ADMIN') return '系统管理员'
   return r || '学生'
@@ -228,6 +285,18 @@ onReachBottom(() => loadMoreLogs())
   flex-direction: row;
   align-items: center;
 }
+.avatar-wrap {
+  position: relative;
+  margin-right: 28rpx;
+  width: 120rpx;
+  height: 120rpx;
+}
+.avatar-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.25);
+}
 .avatar {
   width: 120rpx;
   height: 120rpx;
@@ -239,7 +308,22 @@ onReachBottom(() => loadMoreLogs())
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 28rpx;
+}
+.avatar-edit {
+  position: absolute;
+  right: -6rpx;
+  bottom: -6rpx;
+  width: 44rpx;
+  height: 44rpx;
+  line-height: 44rpx;
+  text-align: center;
+  font-size: 22rpx;
+  background-color: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.15);
+}
+.avatar-edit.uploading {
+  color: #1677ff;
 }
 .name {
   font-size: 38rpx;

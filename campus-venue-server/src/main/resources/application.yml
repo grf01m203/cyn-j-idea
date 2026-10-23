@@ -67,3 +67,13 @@ management:
 campus:
   checkin:
     secret: CampusVenue@2026
+  # 阿里云 OSS 文件存储（凭据通过环境变量注入，默认关闭时回落本地磁盘 data/upload）
+  oss:
+    enabled: ${OSS_ENABLED:false}
+    endpoint: ${OSS_ENDPOINT:https://oss-cn-shanghai.aliyuncs.com}
+    bucket: ${OSS_BUCKET:}
+    access-key-id: ${OSS_AK:}
+    access-key-secret: ${OSS_SK:}
+    prefix: ${OSS_PREFIX:campus-venue/}
+    max-size: ${OSS_MAX_SIZE:5242880}
+    presign-seconds: ${OSS_PRESIGN_SECONDS:3600}

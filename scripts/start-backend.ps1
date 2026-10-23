@@ -17,6 +17,20 @@ $jar = Join-Path $serverDir 'target\campus-venue-server.jar'
 
 Write-Host "=== CampusVenue 后端启动（Spring Boot 3.2 / JDK 17）===" -ForegroundColor Cyan
 
+# 0) 载入本地密钥（OSS 等），文件已被 .gitignore 忽略，不会提交到仓库
+$envFile = Join-Path $serverDir 'config\oss.env'
+if (Test-Path $envFile) {
+    Get-Content $envFile -Encoding UTF8 | ForEach-Object {
+        if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2].Trim(), 'Process')
+        }
+    }
+    Write-Host "已载入 $envFile（OSS 存储" -NoNewline
+    if ($env:OSS_ENABLED -eq 'true') { Write-Host "：启用）" } else { Write-Host "：未启用）" }
+} else {
+    Write-Host "未找到 $envFile，OSS 关闭，文件将存本地磁盘 data/upload" -ForegroundColor Yellow
+}
+
 # 1) 检查端口占用者是不是本项目后端
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($listener) {

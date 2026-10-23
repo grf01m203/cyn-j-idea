@@ -55,6 +55,20 @@ public class AuthService {
         StpUtil.logout();
     }
 
+    /** 更新头像地址（头像文件由 /api/v1/files/upload 上传到 OSS 或本地磁盘） */
+    public Map<String, Object> updateAvatar(Long userId, String avatarUrl) {
+        if (!org.springframework.util.StringUtils.hasText(avatarUrl)) {
+            throw new BizException(ResultCode.PARAM_ERROR, "头像地址不能为空");
+        }
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user == null) {
+            throw new BizException(ResultCode.UNAUTHORIZED);
+        }
+        user.setAvatar(avatarUrl);
+        sysUserMapper.updateById(user);
+        return toUserMap(user);
+    }
+
     public List<String> roles(Long userId) {
         return sysRoleMapper.selectRoleCodesByUserId(userId);
     }

@@ -138,3 +138,18 @@
 | student2 | 123456 | STUDENT（信用分 100） |
 | admin | 123456 | VENUE_ADMIN |
 | sysadmin | 123456 | SYS_ADMIN |
+
+## 12. 文件存储（阿里云 OSS，未配置时自动降级本地磁盘）
+
+| 方法 | 路径 | 请求 | data |
+|---|---|---|---|
+| GET | `/api/v1/files/config` | — | `{ossEnabled,maxSizeMb,allowed}` |
+| POST | `/api/v1/files/upload` | multipart：`file`（必填）、`dir`（默认 `common`，如 `avatar`） | `{storage:"OSS"/"LOCAL", key, url, bucket, size, contentType, originalName}` |
+| GET | `/api/v1/files/presign?key=&expires=` | — | `{key,url}`（bucket 私有读时用，默认 3600 秒） |
+| PUT | `/api/v1/auth/avatar` | `{url}`（先用 upload 拿到 url） | 更新后的用户信息 |
+
+约定：
+- 允许类型：`jpg/jpeg/png/webp/gif/pdf/txt/zip/docx/xlsx/pptx`；单文件 ≤ 5MB。
+- OSS 未启用（`campus.oss.enabled=false` 或凭据缺失）时自动写本地 `data/upload`，返回 `/upload/**` 相对地址，接口行为不变。
+- OSS 对象键规则：`{prefix}{dir}/{yyyy-MM-dd}/{uuid}.{ext}`，默认前缀 `campus-venue/`。
+- 桶为 `public-read` 时 `url` 可直接访问；私有读请改用 `presign` 返回的临时地址。

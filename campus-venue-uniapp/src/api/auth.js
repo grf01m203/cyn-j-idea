@@ -18,3 +18,8 @@ export function getMe() {
 export function logout() {
   return http.post(`${API_PREFIX}/auth/logout`, {}, { hideError: true })
 }
+
+/** PUT /api/v1/auth/avatar {url} -> 更新后的用户信息（头像先经 /files/upload 上传） */
+export function updateAvatar(url) {
+  return http.put(`${API_PREFIX}/auth/avatar`, { url })
+}
