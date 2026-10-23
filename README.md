@@ -1,29 +1,36 @@
 # CampusVenue 校园场馆预约与拼场组队系统
 
-> 毕业设计项目（软件工程）。**基于 Spring Boot 3.2 + uni-app 的多端系统**：学生端（微信小程序 / H5 / Android APK 一套代码）+ 管理端（Vue3 + Element Plus）+ Spring Boot 单体后端 + MySQL 8。
+> 毕业设计项目（软件工程）。**基于 Spring Boot 3.2 + uni-app 的多端系统**：学生端（微信小程序 / H5 / Android APK 一套代码）+ 管理端（Vue3 + Element Plus）+ Spring Boot 单体后端 + MySQL 8 + 阿里云 OSS 文件存储。
 >
 > 选题定位：一段式完成「前后端 + 数据库」「多端互动」「每人可追溯的 GitHub 提交」「部署到服务器可跨网访问」四项硬性要求。
+>
+> **当前位置**：`E:\大作业\campus-venue`（2026-10-23 从原工作区迁移，`.git` 与远程仓库 `github.com/grf01m203/cyn-j-idea` 一并保留）。
 
 ---
 
 ## 一、目录结构
 
 ```
-DP_work_1/
+campus-venue/                        # 当前位于 E:\大作业\campus-venue
 ├── README.md                        # 本文件：总入口、启动方式、验证证据
 ├── docs/
 │   ├── 架构设计规范文档.md / .docx     # 架构设计规范（17 章 + 附录，含架构图）
 │   ├── API.md                       # 接口契约（前后端唯一事实来源）
+│   ├── OSS存储集成.md                # 阿里云 OSS 文件存储接入说明与实测结论
+│   ├── git-协作指南.md               # 分支模型 / 提交规范 / PR 流程
 │   ├── assets/                      # 架构与部署拓扑图
 │   ├── sql/V1__init.sql             # 17 张表建表脚本（含 campus 专用账号）
 │   ├── sql/V2__seed.sql             # 角色/参数/场馆/场地/开放规则/演示账号
-│   └── verification/db-evidence.txt # 数据库层验证证据（预约、槽位、签到、消息、流水）
+│   └── verification/                # 验收证据（接口/数据库/截图）
 ├── campus-venue-server/             # 后端：Spring Boot 3.2.12 + MyBatis-Plus + Sa-Token
 │   ├── pom.xml  src/main/java/com/campus/venue/**
 │   ├── src/main/resources/application*.yml
-│   └── scripts/smoke-test.ps1       # 端到端验收脚本（34 项）
+│   ├── config/oss.env               # OSS 凭据（已被 .gitignore 忽略，不进仓库）
+│   └── scripts/                     # 端到端验收脚本、多端并发实时验证脚本
 ├── campus-venue-uniapp/             # 学生端：uni-app（H5 / 微信小程序 / App）
-└── campus-venue-admin/              # 管理端：Vue3 + Vite + Element Plus + ECharts
+├── campus-venue-admin/              # 管理端：Vue3 + Vite + Element Plus + ECharts
+├── deploy/                          # Nginx / systemd / 一键初始化脚本
+└── scripts/                         # 一键启动后端
 ```
 
 ---
@@ -129,6 +136,14 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 # 覆盖：同账号双设备双 token 在线、双 WebSocket 长连接、拼场邀请实时推送、候补递补实时推送
 ```
 
+### 7. 文件存储（阿里云 OSS，已接入）
+
+- 凭据放在 `campus-venue-server/config/oss.env`（**已被 .gitignore 忽略，不进仓库**），`scripts/start-backend.ps1` 启动时自动载入。
+- 未配置 OSS 时自动降级到本地磁盘 `data/upload`，接口行为不变。
+- 上传接口：`POST /api/v1/files/upload`（multipart：`file` + `dir`），返回 `{storage,key,url}`；学生端「我的」页点头像即可上传并自动更新。
+- 实测：bucket `grf-01-m-203`（cn-shanghai，public-read），上传后公网直链 `HTTP 200`；详见 [docs/OSS存储集成.md](docs/OSS存储集成.md)。
+- ⚠️ OSS **默认域名访问 HTML 会被强制下载**，因此 OSS 用于"文件存储 + 交付物下载"，网页仍由本地/Nginx 托管；如需 OSS 托管网页需绑定已备案的自定义域名。
+
 ---
 
 ## 四、已实现功能
@@ -143,6 +158,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 | 签到 | 一次性动态码（HMAC 签名 + 60 秒有效 + 一单一签）、扫码核销、签到记录 |
 | 信用分 | 分数流水、履约加分、违约扣分、连续违约拉黑、管理员调整 |
 | 消息中心 | 10 类业务消息落库 + WebSocket 实时推送 + 断线轮询兜底（`lastId` 补齐，`msgId` 去重） |
+| 文件存储 | 阿里云 OSS 上传 / 预签名下载 / 删除（手写 V1 签名，无额外 SDK）；未配置时自动降级本地磁盘；学生端头像上传 |
 | 统计 | 总览卡片、星期×槽位热力图、近 N 天预约/取消/签到趋势 |
 | 定时任务 | 未签到违约、待支付过期、完成后加分、候补超时顺延、拼场到期解散 |
 
@@ -164,6 +180,8 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 | 前端 ↔ 后端联调 | 两个 dev server 的 `/api` 代理实测 | ✅ 管理端：登录 `code=0`（VENUE_ADMIN）、统计总览 `code=0`；学生端：登录 `code=0`（STUDENT）、场馆 3 个、场地时段 48 槽位 |
 | 页面截图 | `docs/verification/screenshots/` | 管理端 13 张（看板/场馆/场地规则/预约/用户/拼场/候补/签到/消息等）+ 学生端登录页 1 张 |
 | 操作日志 | `oper_log` 表 | ✅ AOP 切面写入 34 条（含用户名、模块、动作、耗时），证实写操作全链路留痕 |
+| OSS 文件存储 | `POST /api/v1/files/upload` | ✅ `storage=OSS`，公网直链 `HTTP 200 / image/png`，头像 URL 写入 `sys_user.avatar` |
+| 迁移后复验 | 新目录 `E:\大作业\campus-venue` 重启并验收 | ✅ health UP、端到端 **PASS=34 FAIL=0**、OSS 上传直链 200、`git remote` 仍指向 GitHub |
 
 > `scripts/smoke-test.ps1` 覆盖 34 项断言：登录/错误口令/未登录拦截、场馆与时段、预约创建/幂等/冲突/支付、并发抢约、候补递补全链路、拼场全链路、签到与重复扫码、消息与轮询、信用流水、管理端列表与统计、越权拦截。
 > 注意：该脚本必须保存为 **UTF-8 with BOM**（Windows PowerShell 5.1 的编码要求）。
@@ -176,7 +194,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 2. **多端互动不丢消息**：业务变更先落库（`notification`）再 WebSocket 推送，推送失败仅记日志不影响事务；前端断线重连后用 `GET /notifications/poll?lastId=` 补齐增量。
 3. **签到码不可复用**：`HMAC-SHA256(reservationId|expireAt)` 签名 + 60 秒有效期 + `checkin_record.reservation_id` 唯一索引，截图复用与重复核销均被拒绝。
 4. **候补递补**：释放槽位即触发队首通知（10 分钟窗口），超时由定时任务顺延下一位，全程有消息留痕。
-5. **可选组件降级**：Redis / MinIO 非必需；缺失时改用唯一索引 + 本地缓存 + 本地磁盘，保证在最小环境下仍可完整跑通验收。
+5. **可选组件降级**：Redis / MinIO 非必需；缺失时改用唯一索引 + 本地缓存 + 本地磁盘，保证在最小环境下仍可完整跑通验收。云存储已实际接入阿里云 OSS（见第 3.7 节），同样保持"未配置即降级"的设计。
 
 ---
 
@@ -195,3 +213,4 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 2. 定时任务基于单实例 `@Scheduled`；若后续多实例部署，需要引入分布式锁（ShedLock）。
 3. 小程序真机调试需把 `campus-venue-uniapp/src/config/index.js` 的 `BASE_URL` 改为局域网 IP 或已备案的 HTTPS 域名。
 4. 管理端可视化目前为 ECharts 常规图表，可继续补充大屏模式。
+5. OSS 默认域名不能渲染网页（HTML 被强制下载），网页托管仍需 Nginx 或已备案域名；OSS 在本项目中承担文件存储与交付物下载。

@@ -9,7 +9,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-BASE = r"D:\DP_work_1\docs"
+# 以脚本所在目录为基准，项目整体迁移后无需改路径
+BASE = os.path.dirname(os.path.abspath(__file__))
 MD = os.path.join(BASE, "架构设计规范文档.md")
 DOCX = os.path.join(BASE, "架构设计规范文档.docx")
 ASSETS = os.path.join(BASE, "assets")

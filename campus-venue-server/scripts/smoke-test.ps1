@@ -260,7 +260,7 @@ Check "7.1 当前时段创建预约 -> 获取一次性动态签到码 -> 扫码�
     $now = Get-Date
     $startCandidate = [int][math]::Floor(($now.Hour * 60 + $now.Minute) / 30)
     # 若当前槽位开始已超过 15 分钟，则退到上一个槽位，保证仍在签到窗口内
-    if ((($now.Hour * 60 + $now.Minute) % 30) -gt 14) { $startCandidate = $startCandidate - 1 }
+    if ((($now.Hour * 60 + $now.Minute) % 30) -gt 15) { $startCandidate = $startCandidate + 1 }
     if ($startCandidate -lt 16) { throw "当前时间不在开放时段内（$($now.ToString('HH:mm')))" }
     # 依次在所有场地中寻找仍空闲的当前槽位（注意：数组字面量里每个元素都要单独括号，避免逗号优先级陷阱）
     $checkResv = $null
