@@ -1,0 +1,2563 @@
+{
+  "info": {
+    "_postman_id": "e016018b-d267-4d3f-b67e-8f4f93a84b98",
+    "name": "CampusVenue API 测试",
+    "description": "CampusVenue 校园场馆预约系统后端接口测试集合（Postman v2.1）。\n\n使用顺序：先启动后端（http://127.0.0.1:8080）并初始化 MySQL，导入本集合和 CampusVenue.local.postman_environment.json，选择环境后按集合顺序运行（Run collection）。\n\n覆盖：健康检查、登录/鉴权、场馆与时段、预约（含幂等/冲突/支付/取消）、候补递补、拼场组队、签到（含时间窗口负例）、消息中心、信用分、管理端（预约/统计/用户/规则/场馆场地 CRUD/越权）、文件存储。\n\n认证方式：请求头 Authorization: <token>（Sa-Token 原样 token，无 Bearer 前缀）。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "Authorization",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{studentToken}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "00 环境准备",
+      "description": "健康检查与日期/时段变量初始化",
+      "item": [
+        {
+          "name": "0.1 后端健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "description": "Spring Boot Actuator 健康检查；返回 {\"status\":\"UP\"} 说明服务已启动",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"服务状态为 UP\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"UP\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0.2 初始化日期与当前时段变量",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/actuator/health",
+            "description": "为后续请求计算 today / tomorrow / currentSlot 等变量（与 smoke-test.ps1 逻辑一致）",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const now = new Date();",
+                  "const pad = (n) => String(n).padStart(2, '0');",
+                  "const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;",
+                  "pm.environment.set('today', fmt(now));",
+                  "const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);",
+                  "pm.environment.set('tomorrow', fmt(tomorrow));",
+                  "const minutes = now.getHours() * 60 + now.getMinutes();",
+                  "let slot = Math.floor(minutes / 30);",
+                  "if ((minutes % 30) > 15) { slot += 1; }",
+                  "pm.environment.set('currentSlot', String(slot));",
+                  "pm.environment.set('currentEndSlot', String(slot + 1));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"日期变量已生成\", function () {",
+                  "    pm.expect(pm.environment.get(\"today\")).to.match(/^\\d{4}-\\d{2}-\\d{2}$/);",
+                  "    pm.expect(pm.environment.get(\"tomorrow\")).to.match(/^\\d{4}-\\d{2}-\\d{2}$/);",
+                  "    pm.expect(pm.environment.get(\"currentSlot\")).to.match(/^\\d+$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 认证",
+      "description": "登录获取 student / student2 / admin token，并验证鉴权失败分支",
+      "item": [
+        {
+          "name": "1.1 学生 student 登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "演示账号 student / 123456；成功后 token 写入环境变量 studentToken",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{studentUser}}\",\"password\":\"{{studentPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 登录成功\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"返回 token 且角色为 STUDENT\", function () {",
+                  "    pm.expect(json.data.token).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(json.data.user.role).to.eql(\"STUDENT\");",
+                  "});",
+                  "pm.environment.set('studentToken', json.data.token);",
+                  "pm.environment.set('studentId', json.data.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 学生 student2 登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "第二个学生账号，用于冲突/候补/拼场场景",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{student2User}}\",\"password\":\"{{student2Password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回 STUDENT token\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.user.role).to.eql(\"STUDENT\");",
+                  "});",
+                  "pm.environment.set('student2Token', json.data.token);",
+                  "pm.environment.set('student2Id', json.data.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 管理员 admin 登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "场馆管理员（VENUE_ADMIN），管理端接口需要该角色",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{adminUser}}\",\"password\":\"{{adminPassword}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且角色为 VENUE_ADMIN\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.user.role).to.eql(\"VENUE_ADMIN\");",
+                  "});",
+                  "pm.environment.set('adminToken', json.data.token);",
+                  "pm.environment.set('adminId', json.data.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.4 负例：错误密码返回 20001",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{studentUser}}\",\"password\":\"wrong-password\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"业务错误码 20001（而不是 500）\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(20001);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.5 负例：未登录访问 /auth/me 返回 20001",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"业务错误码 20001\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(20001);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.6 查询当前用户信息",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "description": "使用 collection 级 Authorization: {{studentToken}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且为当前学生\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.username).to.eql(pm.environment.get(\"studentUser\"));",
+                  "    pm.expect(json.data.creditScore).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 场馆与时段",
+      "description": "公开查询接口；自动挑选场地与明日空闲时段",
+      "item": [
+        {
+          "name": "2.1 场馆分页查询（并记录 venueId）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/venues?pageNum=1&pageSize=10",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且至少有 3 个场馆\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.total).to.be.at.least(3);",
+                  "    pm.expect(json.data.records).to.be.an(\"array\").and.not.empty;",
+                  "});",
+                  "pm.test(\"记录第一个场馆 ID\", function () {",
+                  "    pm.environment.set(\"venueId\", json.data.records[0].id);",
+                  "    pm.environment.set(\"venueName\", json.data.records[0].name);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 场馆下的场地列表（并记录 courtId）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/venues/{{venueId}}/courts",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且至少 1 个场地\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.be.an(\"array\").and.not.empty;",
+                  "});",
+                  "pm.test(\"优先选择收费场地（用于支付/取消流程）\", function () {",
+                  "    const courts = json.data || [];",
+                  "    const priced = courts.filter((c) => Number(c.pricePerHour) > 0);",
+                  "    const chosen = priced.length > 0 ? priced[0] : courts[0];",
+                  "    pm.environment.set(\"courtId\", chosen.id);",
+                  "    pm.environment.set(\"courtName\", chosen.name);",
+                  "    pm.expect(chosen.id).to.be.a(\"number\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 明日时段视图（挑选连续 3 个空闲槽位）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/courts/{{courtId}}/slots?date={{tomorrow}}",
+            "description": "槽位规则：slotNo=0 表示 00:00~00:30，slotNo/2=小时"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回 48 个 30 分钟槽位\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.slots).to.be.an(\"array\").with.lengthOf(48);",
+                  "});",
+                  "pm.test(\"找到连续 3 个空闲槽位\", function () {",
+                  "    const slots = json.data.slots;",
+                  "    let found = null;",
+                  "    for (let i = 0; i < slots.length - 2; i++) {",
+                  "        if (slots[i].status === 0 && slots[i + 1].status === 0 && slots[i + 2].status === 0) {",
+                  "            found = { start: slots[i].slotNo, end: slots[i + 2].slotNo + 1, label: slots[i].label };",
+                  "            break;",
+                  "        }",
+                  "    }",
+                  "    pm.expect(found).to.not.be.null;",
+                  "    pm.environment.set(\"resvStartSlot\", found.start);",
+                  "    pm.environment.set(\"resvEndSlot\", found.end);",
+                  "    pm.environment.set(\"resvSlotLabel\", found.label);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.4 场地 4 明日空闲窗口（拼场用）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/courts/4/slots?date={{tomorrow}}",
+            "description": "拼场固定用 4 号场地（羽毛球 2 号场），找连续 2 个空闲槽"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且找到连续 2 个空闲槽位\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    const slots = json.data.slots;",
+                  "    let found = null;",
+                  "    for (let i = 0; i < slots.length - 1; i++) {",
+                  "        if (slots[i].status === 0 && slots[i + 1].status === 0) {",
+                  "            found = { start: slots[i].slotNo, end: slots[i + 1].slotNo + 1 };",
+                  "            break;",
+                  "        }",
+                  "    }",
+                  "    pm.expect(found).to.not.be.null;",
+                  "    pm.environment.set(\"teamStartSlot\", found.start);",
+                  "    pm.environment.set(\"teamEndSlot\", found.end);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 预约",
+      "description": "创建、幂等、冲突、支付、取消前置查询",
+      "item": [
+        {
+          "name": "3.1 创建预约（明日）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":{{courtId}},\"resvDate\":\"{{tomorrow}}\",\"startSlot\":{{resvStartSlot}},\"endSlot\":{{resvEndSlot}},\"requestId\":\"{{resvRequestId}}\",\"remark\":\"Postman 自动化测试\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('resvRequestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 创建成功\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"返回预约 ID 与单号\", function () {",
+                  "    pm.expect(json.data.id).to.be.a(\"number\");",
+                  "    pm.expect(json.data.resvNo).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.environment.set('reservationId', json.data.id);",
+                  "pm.environment.set('reservationNo', json.data.resvNo);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 幂等：同一 requestId 重复提交返回同一单",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":{{courtId}},\"resvDate\":\"{{tomorrow}}\",\"startSlot\":{{resvStartSlot}},\"endSlot\":{{resvEndSlot}},\"requestId\":\"{{resvRequestId}}\",\"remark\":\"Postman 幂等测试\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回同一预约 ID\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.id).to.eql(Number(pm.environment.get(\"reservationId\")));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.3 冲突：student2 抢同一时段应返回 30001",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":{{courtId}},\"resvDate\":\"{{tomorrow}}\",\"startSlot\":{{resvStartSlot}},\"endSlot\":{{resvEndSlot}},\"requestId\":\"{{conflictRequestId}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('conflictRequestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"时段冲突返回 30001\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(30001);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.4 我的预约列表包含该单",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/reservations/my?pageNum=1&pageSize=50",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且列表包含刚创建的预约\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    const hit = (json.data.records || []).some((r) => r.id === Number(pm.environment.get(\"reservationId\")));",
+                  "    pm.expect(hit).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.5 预约详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/reservations/{{reservationId}}",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且 ID 一致\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.id).to.eql(Number(pm.environment.get(\"reservationId\")));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.6 模拟支付（状态变为已确认 1）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations/{{reservationId}}/pay-mock",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且状态为 1\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.status).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.7 负例：student2 查看他人预约应被拒绝",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/reservations/{{reservationId}}",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"返回 30005（非本人操作）或 40001（不存在）\", function () {",
+                  "    pm.expect([30005, 40001]).to.include(pm.response.json().code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 候补",
+      "description": "加入候补 → 取消释放 → 递补通知 → 确认生成预约",
+      "item": [
+        {
+          "name": "4.1 student2 加入候补队列",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/queues",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":{{courtId}},\"resvDate\":\"{{tomorrow}}\",\"startSlot\":{{resvStartSlot}},\"endSlot\":{{resvEndSlot}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且排位 >= 1\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.position).to.be.at.least(1);",
+                  "});",
+                  "pm.environment.set('queueId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 student 取消预约释放槽位",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations/{{reservationId}}/cancel",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Postman 自动化测试取消\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且状态为已取消/逾期取消\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect([5, 7]).to.include(json.data.status);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 候补被递补通知（status=1）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/queues/my",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且对应候补状态为 1（已通知）\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    const mine = (json.data || []).find((q) => q.id === Number(pm.environment.get(\"queueId\")));",
+                  "    pm.expect(mine).to.not.be.undefined;",
+                  "    pm.expect(mine.status).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.4 student2 确认递补并生成预约单",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/queues/{{queueId}}/confirm",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且生成新预约单\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.reservationId).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('queueReservationId', json.data.reservationId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.5 清理：取消递补生成的预约（释放明日槽位）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations/{{queueReservationId}}/cancel",
+            "description": "取消候补递补生成的测试预约，避免第二天被定时任务判定为未签到而扣分",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Postman 测试清理\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且预约已取消\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 拼场",
+      "description": "发起拼场 → 申请 → 审核 → 成团生成预约",
+      "item": [
+        {
+          "name": "5.1 student 发起拼场（court 4，2 人上限）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/teams",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":4,\"resvDate\":\"{{tomorrow}}\",\"startSlot\":{{teamStartSlot}},\"endSlot\":{{teamEndSlot}},\"maxMembers\":2,\"remark\":\"Postman 拼场测试\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回拼场 ID\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.id).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('teamId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 student2 申请加入拼场",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/teams/{{teamId}}/join",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且进入待审核状态（0）\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.status).to.eql(0);",
+                  "});",
+                  "pm.environment.set('teamMemberId', json.data.memberId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.3 队长查看拼场详情（确认待审核成员）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/teams/{{teamId}}",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且存在待审核成员\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    const pending = (json.data.members || []).filter((m) => m.status === 0);",
+                  "    pm.expect(pending.length).to.be.at.least(1);",
+                  "    pm.environment.set(\"teamMemberId\", pending[0].id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.4 队长审核通过（满员置为 FULL）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/teams/{{teamId}}/members/{{teamMemberId}}/review?accept=true",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.5 队长确认成团（生成预约单）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/teams/{{teamId}}/confirm",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且生成预约单\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.reservationId).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('teamReservationId', json.data.reservationId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.6 清理：取消成团生成的预约（释放明日槽位）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations/{{teamReservationId}}/cancel",
+            "description": "取消拼场成团生成的测试预约，避免第二天被定时任务判定为未签到而扣分",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Postman 测试清理\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且预约已取消\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 签到",
+      "description": "当前时段预约 → 签到码 → 扫码核销 → 重复扫码/无效码负例",
+      "item": [
+        {
+          "name": "6.1 查询当前时段空闲场地（自习室 B 区）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/courts/6/slots?date={{today}}",
+            "description": "如果该场地当前时段空闲且尚未选到候选场地，则把 checkinCourtId 记为该场地"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"当前时段在开放时段内\", function () {",
+                  "    const wanted = Number(pm.environment.get(\"currentSlot\"));",
+                  "    const slot = (json.data.slots || []).find((s) => s.slotNo === wanted);",
+                  "    pm.expect(slot).to.not.be.undefined;",
+                  "    if (slot.status === 0 && !pm.environment.get(\"checkinCourtId\")) {",
+                  "        pm.environment.set(\"checkinCourtId\", String(6));",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.1b 查询当前时段空闲场地（自习室 A 区）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/courts/5/slots?date={{today}}",
+            "description": "如果该场地当前时段空闲且尚未选到候选场地，则把 checkinCourtId 记为该场地"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"当前时段在开放时段内\", function () {",
+                  "    const wanted = Number(pm.environment.get(\"currentSlot\"));",
+                  "    const slot = (json.data.slots || []).find((s) => s.slotNo === wanted);",
+                  "    pm.expect(slot).to.not.be.undefined;",
+                  "    if (slot.status === 0 && !pm.environment.get(\"checkinCourtId\")) {",
+                  "        pm.environment.set(\"checkinCourtId\", String(5));",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.1c 查询当前时段空闲场地（田径场）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/courts/7/slots?date={{today}}",
+            "description": "如果该场地当前时段空闲且尚未选到候选场地，则把 checkinCourtId 记为该场地"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"当前时段在开放时段内\", function () {",
+                  "    const wanted = Number(pm.environment.get(\"currentSlot\"));",
+                  "    const slot = (json.data.slots || []).find((s) => s.slotNo === wanted);",
+                  "    pm.expect(slot).to.not.be.undefined;",
+                  "    if (slot.status === 0 && !pm.environment.get(\"checkinCourtId\")) {",
+                  "        pm.environment.set(\"checkinCourtId\", String(7));",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.2 当前时段预约（复用空闲候选场地）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reservations",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"courtId\":{{checkinCourtId}},\"resvDate\":\"{{today}}\",\"startSlot\":{{currentSlot}},\"endSlot\":{{currentEndSlot}},\"requestId\":\"{{checkinRequestId}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('checkinRequestId', pm.variables.replaceIn('{{$guid}}'));",
+                  "pm.test('找到当前时段空闲场地', function () {",
+                  "    pm.expect(pm.environment.get('checkinCourtId')).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 当前时段预约成功\", function () { pm.expect(json.code).to.eql(0); });",
+                  "pm.test(\"返回签到用预约 ID\", function () {",
+                  "    pm.expect(json.data.id).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('checkinReservationId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.3 获取一次性签到码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/checkin/code",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reservationId\":{{checkinReservationId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回签到码\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.code).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "pm.environment.set('checkinCode', json.data.code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.4 扫码核销（状态变为已签到 2）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/checkin/scan",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"{{checkinCode}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且状态为 2\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.status).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.5 负例：重复扫码应被拒绝",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/checkin/scan",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"{{checkinCode}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"重复扫码返回非 0 错误码\", function () {",
+                  "    pm.expect(pm.response.json().code).to.not.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.6 负例：非签到窗口申请签到码（明日预约）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/checkin/code",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reservationId\":{{queueReservationId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"时间窗口不满足返回 30006（或状态不允许 30009）\", function () {",
+                  "    pm.expect([30006, 30009]).to.include(pm.response.json().code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.7 负例：无效签到码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/checkin/scan",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"NOT-A-VALID-CHECKIN-CODE\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"无效签到码返回非 0 错误码（30007）\", function () {",
+                  "    pm.expect(pm.response.json().code).to.not.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6.8 清理：管理员释放签到用预约（恢复当前时段槽位）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/reservations/{{checkinReservationId}}/release",
+            "description": "释放签到用的当前时段预约，避免集合重复运行时占满当天剩余空闲场地",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"reason\":\"Postman 测试清理\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (pm.environment.get(\"checkinReservationId\")) {",
+                  "    pm.test(\"code=0 且预约已释放\", function () { pm.expect(json.code).to.eql(0); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 消息",
+      "description": "消息列表、未读数、轮询、标记已读",
+      "item": [
+        {
+          "name": "7.1 student2 消息列表（应含拼场/候补通知）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/notifications?pageNum=1&pageSize=20",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且至少 1 条消息\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.total).to.be.at.least(1);",
+                  "    pm.expect(json.data.records).to.be.an(\"array\").and.not.empty;",
+                  "});",
+                  "pm.environment.set('noticeId', json.data.records[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.2 未读消息数",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/notifications/unread-count",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且 count >= 0\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.count).to.be.at.least(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.3 轮询拉取（lastId=0）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/notifications/poll?lastId=0",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回数组\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.4 标记单条已读",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/notifications/{{noticeId}}/read",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7.5 全部标记已读",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/notifications/read-all",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 信用分",
+      "description": "信用分流水",
+      "item": [
+        {
+          "name": "8.1 信用分流水",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/credit/logs?pageNum=1&pageSize=10",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且为分页结构\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.have.property(\"total\");",
+                  "    pm.expect(json.data.records).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "09 管理端",
+      "description": "管理端预约/统计/用户/规则/场馆 CRUD，以及越权校验",
+      "item": [
+        {
+          "name": "9.1 管理端预约列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/reservations?pageNum=1&pageSize=10",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且包含用户/场地名称\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.total).to.be.at.least(1);",
+                  "    pm.expect(json.data.records[0].userName).to.be.a(\"string\").and.not.empty;",
+                  "    pm.expect(json.data.records[0].courtName).to.be.a(\"string\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.2 统计总览",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/stat/overview",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且场馆数 >= 3、预约总数 > 0\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.venueCount).to.be.at.least(3);",
+                  "    pm.expect(json.data.resvTotal).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.3 时段热力图",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/stat/heatmap",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回热力点数组\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.be.an(\"array\").and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.4 预约趋势（近 7 天）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/stat/trend?days=7",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回 7 天数据\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.be.an(\"array\").with.lengthOf(7);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.5 用户列表（记录 student2）",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/users?pageNum=1&pageSize=50",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且能找到 student2\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    const user = (json.data.records || []).find((u) => u.username === pm.environment.get(\"student2User\"));",
+                  "    pm.expect(user).to.not.be.undefined;",
+                  "    pm.environment.set(\"student2Id\", user.id);",
+                  "    pm.environment.set(\"student2CreditBefore\", user.creditScore);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.6 调整 student2 信用分（目标分=当前分，只验证接口不改变分值）",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/users/{{student2Id}}/credit",
+            "description": "后端对任何负向分值调整都会累加违约次数，因此用目标分=当前分的无副作用方式验证接口",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"score\":{{student2CreditBefore}},\"reason\":\"Postman 接口验证（分值不变）\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.7 学生端 /auth/me 信用分保持不变",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{student2Token}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"信用分未被意外改动\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.creditScore).to.eql(Number(pm.environment.get(\"student2CreditBefore\")));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.8 查询场地开放规则",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/open-rules?courtId=4",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且 7 天规则齐全\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.be.an(\"array\").with.lengthOf(7);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.9 覆盖保存场地开放规则",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/courts/4/rules",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rules\":[{\"weekday\":1,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":2,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":3,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":4,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":5,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":6,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25},{\"weekday\":7,\"startTime\":\"08:00:00\",\"endTime\":\"22:00:00\",\"slotMinutes\":30,\"maxDuration\":240,\"price\":25}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.10 创建测试场馆",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/venues",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Postman 测试场馆\",\"address\":\"自动化测试地址\",\"openTime\":\"08:00:00\",\"closeTime\":\"22:00:00\",\"phone\":\"0000-00000000\",\"description\":\"由 Postman 集合创建，测试后删除\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回场馆 ID\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.id).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('tmpVenueId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.11 在测试场馆下创建场地",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/courts",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"venueId\":{{tmpVenueId}},\"name\":\"Postman 测试场地\",\"type\":\"测试\",\"capacity\":2,\"pricePerHour\":10}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回场地 ID\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data.id).to.be.a(\"number\");",
+                  "});",
+                  "pm.environment.set('tmpCourtId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.12 更新测试场地",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/admin/courts/{{tmpCourtId}}",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"venueId\":{{tmpVenueId}},\"name\":\"Postman 测试场地（已更新）\",\"type\":\"测试\",\"capacity\":4,\"pricePerHour\":12}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.13 删除测试场地",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/courts/{{tmpCourtId}}",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.14 删除测试场馆",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/venues/{{tmpVenueId}}",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0\", function () { pm.expect(json.code).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9.15 负例：学生访问管理接口应返回 20003",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/admin/stat/overview",
+            "description": "",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "Authorization",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "{{studentToken}}",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"无权限返回 20003\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(20003);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "key",
+            "value": "Authorization",
+            "type": "string"
+          },
+          {
+            "key": "value",
+            "value": "{{adminToken}}",
+            "type": "string"
+          },
+          {
+            "key": "in",
+            "value": "header",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "10 文件存储",
+      "description": "OSS/本地降级配置查询与未登录负例",
+      "item": [
+        {
+          "name": "10.1 文件存储配置",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/files/config",
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test(\"code=0 且返回 ossEnabled 等配置\", function () {",
+                  "    pm.expect(json.code).to.eql(0);",
+                  "    pm.expect(json.data).to.have.property(\"ossEnabled\");",
+                  "    pm.expect(json.data).to.have.property(\"maxSizeMb\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10.2 负例：未登录访问文件配置返回 20001",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/files/config",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"未登录返回 20001\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(20001);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8080",
+      "type": "string"
+    }
+  ]
+}

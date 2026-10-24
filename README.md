@@ -172,6 +172,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 | 后端单元测试 | `mvn -B -ntp test` | **Tests run: 7, Failures: 0, Errors: 0**（槽位换算、跨零点标签、计价、区间校验） |
 | 后端启动 | `java -jar target/campus-venue-server.jar --spring.profiles.active=dev` | `actuator/health = UP` |
 | 端到端验收 | `powershell -File campus-venue-server/scripts/smoke-test.ps1 -Base http://localhost:8080` | **PASS=34 FAIL=0** |
+| Postman / Newman 接口测试 | `powershell -File scripts/run-postman.ps1` | ✅ **63 请求 / 75 断言，0 失败**（连续 3 次通过；集合见 `docs/postman/`） |
 | 并发防超卖 | 同上第 4.1 项（10 个并发进程抢同一时段） | 成功=1、冲突=9、其它=0（数据库唯一索引兜底） |
 | 多端互动 | 同上第 5/6/8 项 | 预约→候补递补通知、拼场申请→队长审核→成团通知、签到加分消息全部落地并推送 |
 | 数据库变化 | `docs/verification/db-evidence.txt` | 预约状态分布、槽位占用、签到记录、候补/拼场状态、信用流水、消息记录、AOP 操作日志均有据可查 |
