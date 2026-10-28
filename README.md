@@ -4,14 +4,14 @@
 >
 > 选题定位：一段式完成「前后端 + 数据库」「多端互动」「每人可追溯的 GitHub 提交」「部署到服务器可跨网访问」四项硬性要求。
 >
-> **当前位置**：`E:\大作业\campus-venue`（2026-10-23 从原工作区迁移，`.git` 与远程仓库 `github.com/grf01m203/cyn-j-idea` 一并保留）。
+> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea>（v0.4.2 @ `fc78114`）；GitHub 镜像 <https://github.com/grf01m203/cyn-j-idea>。
 
 ---
 
 ## 一、目录结构
 
 ```
-campus-venue/                        # 当前位于 E:\大作业\campus-venue
+campus-venue/                        # 交付包内 source/
 ├── README.md                        # 本文件：总入口、启动方式、验证证据
 ├── docs/
 │   ├── 架构设计规范文档.md / .docx     # 架构设计规范（17 章 + 附录，含架构图）
@@ -155,7 +155,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 | 预约 | 创建（**槽位唯一索引防超卖**）、客户端 `requestId` 幂等、模拟支付、取消（分时段计违约）、我的预约 |
 | 拼场组队 | 发起、申请、队长审核、满员置 FULL、成团生成共享预约单、退出/解散、到期自动解散 |
 | 候补队列 | 满场加入候补、释放槽位后自动通知队首、10 分钟确认窗口、超时自动顺延 |
-| 签到 | 一次性动态码（HMAC 签名 + 60 秒有效 + 一单一签）、扫码核销、签到记录 |
+| 签到 | 一次性签到码（6 位数字 + 60 秒有效 + 一单一签，服务端内存校验；H5 手动输入 / 真机小程序扫码）、签到记录 |
 | 信用分 | 分数流水、履约加分、违约扣分、连续违约拉黑、管理员调整 |
 | 消息中心 | 10 类业务消息落库 + WebSocket 实时推送 + 断线轮询兜底（`lastId` 补齐，`msgId` 去重） |
 | 文件存储 | 阿里云 OSS 上传 / 预签名下载 / 删除（手写 V1 签名，无额外 SDK）；未配置时自动降级本地磁盘；学生端头像上传 |
@@ -193,7 +193,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 
 1. **防超卖双保险**：预约时段按 30 分钟切分为槽位写入 `reservation_slot`，`uk_court_date_slot(court_id, slot_date, slot_no)` 唯一索引在数据库层杜绝并发抢同一时段；应用层事务 + 冲突回滚给出友好提示。
 2. **多端互动不丢消息**：业务变更先落库（`notification`）再 WebSocket 推送，推送失败仅记日志不影响事务；前端断线重连后用 `GET /notifications/poll?lastId=` 补齐增量。
-3. **签到码不可复用**：`HMAC-SHA256(reservationId|expireAt)` 签名 + 60 秒有效期 + `checkin_record.reservation_id` 唯一索引，截图复用与重复核销均被拒绝。
+3. **签到码不可复用**：6 位数字一次性码（v0.4.2 起；60 秒有效、核销即从内存移除）+ `checkin_record.reservation_id` 唯一索引，重复核销与无效码均被拒绝。
 4. **候补递补**：释放槽位即触发队首通知（10 分钟窗口），超时由定时任务顺延下一位，全程有消息留痕。
 5. **可选组件降级**：Redis / MinIO 非必需；缺失时改用唯一索引 + 本地缓存 + 本地磁盘，保证在最小环境下仍可完整跑通验收。云存储已实际接入阿里云 OSS（见第 3.7 节），同样保持"未配置即降级"的设计。
 
