@@ -4,7 +4,7 @@
 >
 > 选题定位：一段式完成「前后端 + 数据库」「多端互动」「每人可追溯的 GitHub 提交」「部署到服务器可跨网访问」四项硬性要求。
 >
-> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea>（v0.4.2 @ `fc78114`）；GitHub 镜像 <https://github.com/grf01m203/cyn-j-idea>。
+> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea>（v0.4.3 @ 标签 `v0.4.3`；v0.4.2 @ `fc78114`）；GitHub 镜像 <https://github.com/grf01m203/cyn-j-idea>。
 
 ---
 
@@ -194,7 +194,7 @@ node campus-venue-server/scripts/realtime-multiclient-test.mjs http://localhost:
 
 1. **防超卖双保险**：预约时段按 30 分钟切分为槽位写入 `reservation_slot`，`uk_court_date_slot(court_id, slot_date, slot_no)` 唯一索引在数据库层杜绝并发抢同一时段；应用层事务 + 冲突回滚给出友好提示。
 2. **多端互动不丢消息**：业务变更先落库（`notification`）再 WebSocket 推送，推送失败仅记日志不影响事务；前端断线重连后用 `GET /notifications/poll?lastId=` 补齐增量。
-3. **签到码不可复用**：6 位数字一次性码（v0.4.2 起；60 秒有效、核销即从内存移除）+ `checkin_record.reservation_id` 唯一索引，重复核销与无效码均被拒绝。
+3. **签到码不可复用且防爆破**：6 位数字一次性码（v0.4.2 起；60 秒有效、核销即从内存移除）+ `checkin_record.reservation_id` 唯一索引，重复核销与无效码均被拒绝；v0.4.3 起同一来源 10 分钟内连续失败 5 次将锁定 10 分钟（`30011`），学生端还会把码离屏渲染为二维码，核验人员用手机相机即可读取。
 4. **候补递补**：释放槽位即触发队首通知（10 分钟窗口），超时由定时任务顺延下一位，全程有消息留痕。
 5. **可选组件降级**：Redis / MinIO 非必需；缺失时改用唯一索引 + 本地缓存 + 本地磁盘，保证在最小环境下仍可完整跑通验收。云存储已实际接入阿里云 OSS（见第 3.7 节），同样保持"未配置即降级"的设计。
 

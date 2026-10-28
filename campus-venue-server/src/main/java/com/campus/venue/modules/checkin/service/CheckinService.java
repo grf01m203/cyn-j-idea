@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 
 /**
  * 签到服务：6 位数字一次性签到码（60 秒有效期，单次核销后失效）。
+ * 核销失败按来源（IP）计数，10 分钟内累计 5 次失败即锁定 10 分钟（v0.4.3 起）。
  * <p>
  * 签到码由服务端随机生成并保存在内存中（单实例演示环境足够），
  * 扫码 / 人工输入最终都调用 {@link #scan}，成功后写 checkin_record，
@@ -51,6 +52,13 @@ public class CheckinService {
     /** 签到码位数（纯数字） */
     private static final int CODE_LENGTH = 6;
 
+    /** 同一来源在统计窗口内允许的最大失败次数（默认 5 次） */
+    private static final int DEFAULT_MAX_FAIL = 5;
+    /** 触发限流后的锁定时长（分钟，默认 10 分钟） */
+    private static final int DEFAULT_LOCK_MINUTES = 10;
+    /** 失败次数统计窗口：10 分钟 */
+    private static final long FAIL_WINDOW_MILLIS = 10 * 60_000L;
+
     private final ReservationMapper reservationMapper;
     private final CheckinRecordMapper checkinRecordMapper;
     private final VenueCourtMapper venueCourtMapper;
@@ -62,6 +70,23 @@ public class CheckinService {
     private final SecureRandom random = new SecureRandom();
     /** 签到码 -> 预约与过期时间（单实例内存存储；集群部署需换成 Redis） */
     private final Map<String, CodeEntry> codeStore = new ConcurrentHashMap<>();
+    /** 来源（IP/用户）-> 失败计数与锁定截止时间（单实例内存；集群需 Redis） */
+    private final Map<String, Attempt> attempts = new ConcurrentHashMap<>();
+
+    /** 失败计数（synchronized 保护，避免并发下计数丢失） */
+    private static final class Attempt {
+        private int fails;
+        private long windowStart;
+        private long lockUntil;
+
+        Attempt(long now) {
+            this.windowStart = now;
+        }
+    }
+
+    /** 限流状态快照（用于返回剩余锁定时间） */
+    public record LimitState(boolean locked, long retryAfterSeconds) {
+    }
 
     public record CodeDTO(@NotNull(message = "预约ID不能为空") Long reservationId) {
     }
@@ -101,16 +126,21 @@ public class CheckinService {
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> scan(Long operatorId, String code, String ip) {
+        String limitKey = limitKey(operatorId, ip);
+        assertNotLimited(limitKey);
         if (!StringUtils.hasText(code)) {
+            failAttempt(limitKey);
             throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "请输入 6 位签到码");
         }
         String normalized = code.trim();
         if (!normalized.matches("\\d{" + CODE_LENGTH + "}")) {
+            failAttempt(limitKey);
             throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码为 6 位数字，请检查后重新输入");
         }
         CodeEntry entry = codeStore.get(normalized);
         if (entry == null || System.currentTimeMillis() > entry.expireAt()) {
             codeStore.remove(normalized);
+            failAttempt(limitKey);
             throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码已过期，请重新生成");
         }
         // 一次性：取到即作废，无论后续校验是否通过
@@ -141,6 +171,7 @@ public class CheckinService {
         noticeService.push(resv.getUserId(), NoticeTypes.CHECKIN_REMIND, "签到成功",
                 "预约 " + resv.getResvNo() + " 签到成功，祝使用愉快", "CHECKIN", record.getId());
 
+        attempts.remove(limitKey);
         Map<String, Object> map = new HashMap<>(5);
         map.put("reservationId", resv.getId());
         map.put("resvNo", resv.getResvNo());
@@ -186,6 +217,63 @@ public class CheckinService {
         return map;
     }
 
+    /** 限流键：优先按客户端 IP，取不到时退化为操作人维度 */
+    private String limitKey(Long operatorId, String ip) {
+        if (StringUtils.hasText(ip)) {
+            return "ip:" + ip.trim();
+        }
+        return "user:" + operatorId;
+    }
+
+    /** 是否处于锁定状态；已锁定则直接拒绝，并提示剩余时间 */
+    public LimitState limitState(Long operatorId, String ip) {
+        Attempt a = attempts.get(limitKey(operatorId, ip));
+        if (a == null) {
+            return new LimitState(false, 0);
+        }
+        synchronized (a) {
+            long now = System.currentTimeMillis();
+            if (now < a.lockUntil) {
+                return new LimitState(true, Math.max(1, (a.lockUntil - now + 999) / 1000));
+            }
+        }
+        return new LimitState(false, 0);
+    }
+
+    private void assertNotLimited(String key) {
+        Attempt a = attempts.get(key);
+        if (a == null) {
+            return;
+        }
+        synchronized (a) {
+            long now = System.currentTimeMillis();
+            if (now < a.lockUntil) {
+                long minutes = Math.max(1, (a.lockUntil - now + 59_999) / 60_000);
+                throw new BizException(ResultCode.RATE_LIMITED,
+                        String.format("签到码错误次数过多，已锁定 %d 分钟，请稍后再试", minutes));
+            }
+        }
+    }
+
+    private void failAttempt(String key) {
+        long now = System.currentTimeMillis();
+        int maxFail = Math.max(1, configService.getInt(ConfigKeys.CHECKIN_MAX_FAIL, DEFAULT_MAX_FAIL));
+        int lockMinutes = Math.max(1, configService.getInt(ConfigKeys.CHECKIN_LOCK_MINUTES, DEFAULT_LOCK_MINUTES));
+        Attempt a = attempts.computeIfAbsent(key, k -> new Attempt(now));
+        synchronized (a) {
+            if (now - a.windowStart > FAIL_WINDOW_MILLIS) {
+                a.windowStart = now;
+                a.fails = 0;
+            }
+            a.fails++;
+            if (a.fails >= maxFail) {
+                a.lockUntil = now + lockMinutes * 60_000L;
+                a.fails = 0;
+            }
+        }
+        log.warn("签到码校验失败，来源 {} 累计失败 {} 次", key, a.fails);
+    }
+
     /** 生成 6 位数字码，冲突时重试（内存中同时存在的码极少，几乎不会冲突） */
     private String generateUniqueCode(Long reservationId, long expireAt) {
         for (int i = 0; i < 100; i++) {
@@ -202,6 +290,12 @@ public class CheckinService {
     private void purgeExpired() {
         long now = System.currentTimeMillis();
         codeStore.entrySet().removeIf(e -> now > e.getValue().expireAt());
+        attempts.entrySet().removeIf(e -> {
+            Attempt a = e.getValue();
+            synchronized (a) {
+                return now > a.lockUntil + 60 * 60_000L && now - a.windowStart > FAIL_WINDOW_MILLIS;
+            }
+        });
     }
 
     private Reservation mustGet(Long id) {

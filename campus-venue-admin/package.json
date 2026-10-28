@@ -1,6 +1,6 @@
 {
   "name": "campus-venue-admin",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "CampusVenue 校园场馆预约与拼场组队系统 —— 管理员端 Web 控制台",
   "type": "module",

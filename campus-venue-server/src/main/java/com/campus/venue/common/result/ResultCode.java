@@ -23,6 +23,7 @@ public enum ResultCode {
     RESERVE_LIMIT(30008, "不满足预约规则"),
     WINDOWS_ERROR(30009, "状态不允许该操作"),
     DATA_IN_USE(30010, "数据被引用，无法执行当前操作"),
+    RATE_LIMITED(30011, "操作过于频繁，请稍后再试"),
     NOT_FOUND(40001, "资源不存在"),
     SYSTEM_ERROR(50000, "系统繁忙，请稍后重试");
 

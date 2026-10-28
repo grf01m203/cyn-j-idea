@@ -93,10 +93,12 @@
 
 签到码为 **6 位数字**（如 `384921`），一次性使用，生成后 **60 秒**内有效；由服务端随机生成并保存在内存（单实例演示环境；集群部署需替换为 Redis）。扫码与人工输入最终调用同一个 `/checkin/scan` 接口，记录的 `channel` 均为 `QRCODE`。
 
+> v0.4.3 起：① 学生端会把 6 位码离线渲染为二维码（纯前端 SVG，无网络依赖），核验人员用手机相机扫描即可读到码；② `scan` 接口按来源（IP，取不到用用户）做失败计数，10 分钟窗口内累计 `checkin.max.fail`（默认 5）次失败即锁定 `checkin.lock.minutes`（默认 10）分钟，期间返回 `30011`；成功核销清零。
+
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
 | POST | `/api/v1/checkin/code` | `{reservationId}` | `{code:"6 位数字",expireAt,expireSeconds:60}`（仅“已确认”订单、且处于开始前后 15 分钟窗口内可生成） |
-| POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期 `code=30007`；重复核销 `code=30009` |
+| POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期 `code=30007`；重复核销 `code=30009`；连续输错被锁定 `code=30011`（提示剩余分钟数） |
 | GET | `/api/v1/checkin/records?reservationId=` | — | `[{id,reservationId,userId,userName,courtName,checkinTime,channel}]` |
 
 ## 7. 消息 Notice
@@ -148,6 +150,7 @@
 | 30008 | 不满足预约规则（时段已过 / 超出开放时间 / 超出最长时长 / 单次最多段数） |
 | 30009 | 当前状态不允许该操作 |
 | 30010 | 数据被引用，无法执行当前操作 |
+| 30011 | 操作过于频繁（签到码连续输错，来源已临时锁定） |
 | 40001 | 资源不存在 |
 | 50000 | 系统繁忙（服务端日志按 traceId 定位真实原因） |
 

@@ -43,6 +43,10 @@
             </text>
             <text class="code-tip text-danger" v-else>签到码已过期，请重新获取</text>
             <text class="code-tip text-sm text-muted" v-if="expireAt">服务端过期时间：{{ formatDateTime(expireAt) }}</text>
+            <view class="qr-wrap" v-if="code && remainMs > 0 && qrDataUrl">
+              <image class="qr-img" :src="qrDataUrl" mode="aspectFit" />
+              <text class="code-tip text-sm text-muted">用手机相机扫描二维码，可直接读到 6 位签到码</text>
+            </view>
           </view>
           <view class="code-box code-empty" v-else>
             <text class="state-text">点击下方按钮生成一次性签到码（60 秒有效）</text>
@@ -58,7 +62,7 @@
       <view class="card">
         <text class="card-title">扫码 / 输入码签到</text>
         <text class="text-sm text-muted scan-tip">
-          场馆核验台可输入你的签到码完成核销；也可由核验人员扫码。
+          场馆核验台可输入你的签到码完成核销；也可由核验人员用手机相机扫描上方二维码读取 6 位码。
         </text>
         <view class="row scan-row">
           <input
@@ -117,6 +121,7 @@ import { getCheckinCode, scanCheckin, getCheckinRecords } from '@/api/checkin.js
 import { RESV_STATUS } from '@/config/index.js'
 import { countdownText, formatDateTime, shortTime, toTimestamp, toast } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
+import QRCode from '@/utils/qrcode.js'
 
 const pageState = ref('loading')
 const errorMsg = ref('加载失败，请稍后重试')
@@ -127,6 +132,8 @@ const code = ref('')
 const expireAt = ref('')
 const remainMs = ref(0)
 const codeLoading = ref(false)
+/** 当前签到码对应的二维码（SVG data URI，由 <image> 展示） */
+const qrDataUrl = ref('')
 
 const inputCode = ref('')
 const scanLoading = ref(false)
@@ -139,6 +146,39 @@ const recordError = ref('加载失败，请稍后重试')
 const preselectId = ref('')
 
 let timer = null
+
+/** 把签到码编码为二维码 SVG data URI（纯前端，离线可用） */
+function buildQrDataUrl(text) {
+  if (!text) return ''
+  try {
+    const qr = new QRCode(6, 1)
+    qr.addData(String(text))
+    qr.make()
+    const n = qr.getModuleCount()
+    const quiet = 2
+    let rects = ''
+    for (let r = 0; r < n; r++) {
+      let col = 0
+      while (col < n) {
+        if (!qr.isDark(r, col)) {
+          col++
+          continue
+        }
+        const start = col
+        while (col < n && qr.isDark(r, col)) col++
+        rects += '<rect x="' + (start + quiet) + '" y="' + (r + quiet) + '" width="' + (col - start) + '" height="1"/>'
+      }
+    }
+    const dim = n + quiet * 2
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + dim + ' ' + dim + '" width="440" height="440" shape-rendering="crispEdges">' +
+      '<rect width="' + dim + '" height="' + dim + '" fill="#ffffff"/>' +
+      '<g fill="#111111">' + rects + '</g></svg>'
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+  } catch (e) {
+    return ''
+  }
+}
 
 function statusText(s) {
   return (RESV_STATUS[s] && RESV_STATUS[s].text) || '未知'
@@ -196,6 +236,7 @@ function switchReservation(r) {
   current.value = r
   code.value = ''
   expireAt.value = ''
+  qrDataUrl.value = ''
   remainMs.value = 0
   scanResult.value = null
   loadRecords()
@@ -212,6 +253,7 @@ async function fetchCode() {
     const data = await getCheckinCode(current.value.id)
     code.value = (data && data.code) || ''
     expireAt.value = (data && data.expireAt) || ''
+    qrDataUrl.value = buildQrDataUrl(code.value)
     startCountdown()
   } catch (e) {
     if (e && e.message) toast(e.message)
@@ -222,6 +264,10 @@ async function fetchCode() {
 
 /** 扫码（小程序端调用摄像头；H5 提示手动输入） */
 function onScan() {
+  // #ifdef H5
+  toast('H5 浏览器不支持直接调用摄像头扫码：可用另一台手机的相机扫描上方二维码，读取 6 位码后在此输入')
+  return
+  // #endif
   if (typeof uni.scanCode !== 'function') {
     toast('当前环境不支持扫码，请手动输入签到码')
     return
@@ -354,6 +400,17 @@ onUnmounted(() => stopCountdown())
   font-size: 26rpx;
   color: #4e5969;
   margin-top: 12rpx;
+}
+.qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.qr-img {
+  width: 340rpx;
+  height: 340rpx;
+  background-color: #ffffff;
 }
 .code-empty {
   padding: 30rpx 0;
