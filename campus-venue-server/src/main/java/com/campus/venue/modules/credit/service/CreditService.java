@@ -42,7 +42,8 @@ public class CreditService {
         }
         int after = Math.max(0, Math.min(MAX_SCORE, (user.getCreditScore() == null ? MAX_SCORE : user.getCreditScore()) + delta));
         user.setCreditScore(after);
-        if (delta < 0) {
+        // 只有业务违约（预约/签到等）才累计违约次数；管理员手工调分（bizType=ADMIN）不计违约、不触发黑名单
+        if (delta < 0 && !"ADMIN".equals(bizType)) {
             user.setViolateCount((user.getViolateCount() == null ? 0 : user.getViolateCount()) + 1);
             int limit = configService.getInt(ConfigKeys.CREDIT_BLACKLIST_COUNT, 3);
             if (user.getViolateCount() >= limit) {
@@ -73,6 +74,9 @@ public class CreditService {
     /** 管理端：把分值调整为指定值 */
     @Transactional(rollbackFor = Exception.class)
     public void adjustTo(Long userId, int targetScore, String reason) {
+        if (targetScore < 0 || targetScore > MAX_SCORE) {
+            throw new BizException(ResultCode.PARAM_ERROR, "信用分必须在 0~" + MAX_SCORE + " 之间");
+        }
         SysUser user = sysUserMapper.selectById(userId);
         if (user == null) {
             throw new BizException(ResultCode.NOT_FOUND, "用户不存在");

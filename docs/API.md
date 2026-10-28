@@ -32,7 +32,7 @@
 |---|---|---|---|
 | GET | `/api/v1/venues?keyword=&pageNum=1&pageSize=10` | — | 分页 `{id,name,address,openTime,closeTime,phone,description,courtCount}` |
 | GET | `/api/v1/venues/{id}/courts` | — | `[{id,venueId,name,type,capacity,pricePerHour,status}]` |
-| GET | `/api/v1/courts/{id}/slots?date=2026-10-20` | — | `{courtId,courtName,date,slots:[{slotNo,label,status}]}`，`status`：`0`空闲 `1`已占用 `2`不可用 |
+| GET | `/api/v1/courts/{id}/slots?date=2026-10-20` | — | `{courtId,courtName,date,slots:[{slotNo,label,status}]}`，`status`：`0`空闲 `1`已占用 `2`不可用（当日不开放） `3`已过期（当日已过时段） |
 | POST | `/api/v1/admin/venues` | `{name,address,openTime,closeTime,phone,description}` | `{id}` |
 | PUT | `/api/v1/admin/venues/{id}` | 同上 | `null` |
 | DELETE | `/api/v1/admin/venues/{id}` | — | `null` |
@@ -46,12 +46,26 @@
 
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
-| POST | `/api/v1/reservations` | `{courtId,resvDate,startSlot,endSlot,requestId,remark}` | `{id,resvNo,status,amount,startTime,endTime}`；时段冲突返回 `code=30001` |
+| POST | `/api/v1/reservations` | `{courtId,resvDate,startSlot,endSlot,requestId,remark}` | `{id,resvNo,status,amount,startTime,endTime,canPay,canCancel,canCheckin}`；`amount=0` 的免费场地直接返回 `status=1`（已确认，无需支付），收费场地返回 `status=0`；时段冲突 `code=30001`；日期/时段已过 `code=30008`；`requestId` 幂等 |
 | GET | `/api/v1/reservations/my?status=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,venueName,courtName,resvDate,startTime,endTime,status,source,amount,teamId,canCancel,canCheckin,canPay}` |
 | GET | `/api/v1/reservations/{id}` | — | 同上单条 + `{members:[{userId,nickname}]}` |
 | POST | `/api/v1/reservations/{id}/pay-mock` | — | `{status}` |
-| POST | `/api/v1/reservations/{id}/cancel` | `{reason}` | `{status,penalty}` |
-| GET | `/api/v1/admin/reservations?status=&date=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,userName,courtName,resvDate,startTime,endTime,status,amount,createTime}` |
+| POST | `/api/v1/reservations/{id}/cancel` | `{reason}` | 取消后的完整预约详情 `{...,status,canPay,canCancel,canCheckin}`；开始时间 + 签到宽限期（默认 15 分钟）之后返回 `code=30006`；开始前 `reservation.cancel.free.hours`（默认 2 小时）内取消不扣分，之后取消扣 3 分并置 `status=7`（逾期取消） |
+| GET | `/api/v1/admin/reservations?status=&date=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,userId,userName,courtId,courtName,venueName,resvDate,startTime,endTime,startSlot,endSlot,status,source,amount,remark,createTime}` |
+| GET | `/api/v1/admin/reservations/{id}` | — | 同上单条 + `{members:[{userId,nickname,isLeader}]}` |
+| POST | `/api/v1/admin/reservations/{id}/release` | — | `null`（管理员强制释放槽位，不扣分） |
+
+### 3.1 管理端拼场 / 候补 / 公告（v0.4.0 新增）
+
+| 方法 | 路径 | 请求 | data |
+|---|---|---|---|
+| GET | `/api/v1/admin/teams?status=&courtId=&date=&pageNum=&pageSize=` | — | 分页 `{id,courtId,courtName,creatorId,creatorName,resvDate,startSlot,endSlot,startTime,endTime,maxMembers,currentMembers,status,reservationId,remark,expireTime,createTime}` |
+| GET | `/api/v1/admin/teams/{id}` | — | 单条 + `{members:[{id,userId,nickname,status,isLeader}]}` |
+| POST | `/api/v1/admin/teams/{id}/dissolve` | — | `null`（强制解散；已成团返回 `code=30010`，已解散返回 `code=30009`） |
+| GET | `/api/v1/admin/queues?status=&courtId=&date=&pageNum=&pageSize=` | — | 分页 `{id,courtId,courtName,userId,userName,resvDate,startSlot,endSlot,startTime,endTime,status,expireTime,createTime,position}`；`position` 仅 `status=0`（等待中）时返回 |
+| POST | `/api/v1/admin/announcements` | `{title,content}`（标题 ≤50 字、内容 ≤2000 字） | `{id,title,content,publishTime,createTime,receiverCount}`；`receiverCount` 为实际推送用户数 |
+| GET | `/api/v1/admin/announcements?pageNum=&pageSize=` | — | 分页 `{id,title,content,publishTime,createTime}` |
+| DELETE | `/api/v1/admin/announcements/{id}` | — | `null`（撤销公告，同时删除学生端个人副本；不存在返回 `code=40001`） |
 
 ## 4. 拼场 Team
 
@@ -77,11 +91,13 @@
 
 ## 6. 签到 Checkin
 
+签到码为 **6 位数字**（如 `384921`），一次性使用，生成后 **60 秒**内有效；由服务端随机生成并保存在内存（单实例演示环境；集群部署需替换为 Redis）。扫码与人工输入最终调用同一个 `/checkin/scan` 接口，记录的 `channel` 均为 `QRCODE`。
+
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
-| POST | `/api/v1/checkin/code` | `{reservationId}` | `{code,expireAt}`（一次性，60 秒有效） |
-| POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,status:2,checkinTime}` |
-| GET | `/api/v1/checkin/records?reservationId=` | — | `[{id,reservationId,userName,checkinTime,channel}]` |
+| POST | `/api/v1/checkin/code` | `{reservationId}` | `{code:"6 位数字",expireAt,expireSeconds:60}`（仅“已确认”订单、且处于开始前后 15 分钟窗口内可生成） |
+| POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期 `code=30007`；重复核销 `code=30009` |
+| GET | `/api/v1/checkin/records?reservationId=` | — | `[{id,reservationId,userId,userName,courtName,checkinTime,channel}]` |
 
 ## 7. 消息 Notice
 
@@ -94,7 +110,7 @@
 | GET | `/api/v1/notifications/unread-count` | — | `{count}` |
 | WS | `/ws/notice?token=<token>` | — | 服务端推送 `{msgId,type,title,content,bizType,bizId,createTime,read:false}` |
 
-消息类型 `type`：`RESV_CREATED/RESV_CANCELLED/RESV_REMIND/TEAM_INVITE/TEAM_FULL/TEAM_DISSOLVED/QUEUE_PROMOTED/CHECKIN_REMIND/CREDIT_CHANGED/ADMIN_NOTICE`。
+消息类型 `type`：`RESV_CREATED/RESV_CANCELLED/RESV_REMIND/TEAM_INVITE/TEAM_FULL/TEAM_DISSOLVED/QUEUE_PROMOTED/CHECKIN_REMIND/CREDIT_CHANGED/ADMIN_NOTICE/ANNOUNCEMENT`（`ANNOUNCEMENT` 为学生端公告，见 3.1 公告接口）。
 
 ## 8. 统计 Stat（管理员）
 
@@ -125,10 +141,15 @@
 | 30002 | 信用分不足，暂不能预约 |
 | 30003 | 不在拼场招募状态 |
 | 30004 | 拼场人数已满 |
+| 20002 | 用户名或密码错误 |
 | 30005 | 非本人操作 |
-| 30006 | 时间窗口不允许（未到签到时间 / 已过取消时限） |
+| 30006 | 时间窗口不允许（未到签到时间 / 已过取消时限 / 预约已开始） |
 | 30007 | 签到码无效或已过期 |
+| 30008 | 不满足预约规则（时段已过 / 超出开放时间 / 超出最长时长 / 单次最多段数） |
+| 30009 | 当前状态不允许该操作 |
+| 30010 | 数据被引用，无法执行当前操作 |
 | 40001 | 资源不存在 |
+| 50000 | 系统繁忙（服务端日志按 traceId 定位真实原因） |
 
 ## 11. 演示账号（初始化数据）
 

@@ -395,7 +395,7 @@ async function onSubmit () {
 async function onDelete (row) {
   try {
     await ElMessageBox.confirm(
-      `确认删除场地「${row.name}」？该操作为危险操作，若存在未完成预约，后端将拒绝删除。`,
+      `确认删除场地「${row.name}」？删除前请先确认无未完成预约；若存在未完成预约，后端将拒绝删除。`,
       '删除确认',
       { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
     )

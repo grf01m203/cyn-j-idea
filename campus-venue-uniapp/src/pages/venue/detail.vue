@@ -65,6 +65,9 @@
             :max-duration="maxDuration"
             @change="onSlotChange"
           />
+          <view class="slot-hint" v-if="slotState === 'success' && !hasFreeSlot">
+            <text class="text-sm text-muted">当天已无可预约时段，请切换到其他日期</text>
+          </view>
         </StateView>
       </view>
     </view>
@@ -111,7 +114,9 @@
         <input class="remark-input" v-model="remark" placeholder="选填，如：需要球拍" placeholder-class="ph" />
       </view>
       <text class="text-sm text-muted">
-        提交后请在「我的预约」中完成模拟支付。同一请求有幂等标识，重复提交不会生成多单。
+        {{ estimatedAmount > 0
+          ? '提交后请在「我的预约」中完成模拟支付。同一请求有幂等标识，重复提交不会生成多单。'
+          : '该时段预计 0 元，提交后将直接确认，无需支付。同一请求有幂等标识，重复提交不会生成多单。' }}
       </text>
     </Modal>
 
@@ -141,7 +146,8 @@ import { getVenueCourts, getCourtSlots } from '@/api/venue.js'
 import { createReservation } from '@/api/reservation.js'
 import { joinQueue } from '@/api/queue.js'
 import { createTeam } from '@/api/team.js'
-import { money, slotToTime, today, genRequestId, toast } from '@/utils/date.js'
+import { RESV_STATUS } from '@/config/index.js'
+import { money, slotToTime, today, dateOffset, genRequestId, toast } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
 
 const venueId = ref('')
@@ -188,6 +194,35 @@ const estimatedAmount = computed(() => {
 
 const canSubmit = computed(() => startSlot.value !== null && endSlot.value !== null && !submitting.value)
 
+/** 当前日期是否还有可预约（status=0）的时段 */
+const hasFreeSlot = computed(() => slots.value.some((s) => Number(s.status) === 0))
+
+/**
+ * 首次进入时若「今天」已无可预约时段（例如晚上打开，剩余时段都已过期），
+ * 自动切换到最近一个仍有空闲时段的日期，避免看到一整屏灰色/过期时段无从下手。
+ */
+let autoDateChecked = false
+async function maybeAdvanceDate() {
+  if (autoDateChecked) return
+  autoDateChecked = true
+  if (!courtId.value || date.value !== today() || hasFreeSlot.value) return
+  for (let i = 1; i <= 13; i++) {
+    const next = dateOffset(i)
+    try {
+      const data = await getCourtSlots(courtId.value, next)
+      const list = (data && data.slots) || []
+      if (list.some((s) => Number(s.status) === 0)) {
+        date.value = next
+        await loadSlots()
+        toast(`今日已无可预约时段，已切换到 ${next}`)
+        return
+      }
+    } catch (e) {
+      // 单天查询失败不影响继续查找
+    }
+  }
+}
+
 async function loadCourts() {
   courtState.value = 'loading'
   try {
@@ -228,7 +263,7 @@ function pickCourt(c) {
   }
   if (courtId.value === c.id) return
   courtId.value = c.id
-  loadSlots()
+  loadSlots().then(() => maybeAdvanceDate())
 }
 
 function onDateChange() {
@@ -250,6 +285,22 @@ function openReserve() {
   reserveVisible.value = true
 }
 
+/** 预约状态文案（与后端 reservation.status 枚举 0~7 对齐） */
+function resvStatusText(status, amount) {
+  const s = Number(status)
+  const text = (RESV_STATUS[s] && RESV_STATUS[s].text) || '未知状态'
+  const isFree = amount !== null && amount !== undefined && amount !== '' && Number(amount) === 0
+  return s === 1 && isFree ? `${text}（0 元无需支付）` : text
+}
+
+/** 跳转「我的预约」：该页是 tabBar 页面，优先 switchTab */
+function goReservationList() {
+  uni.switchTab({
+    url: '/pages/reservation/list',
+    fail: () => uni.reLaunch({ url: '/pages/reservation/list' })
+  })
+}
+
 async function submitReservation() {
   if (submitting.value) return
   submitting.value = true
@@ -266,14 +317,27 @@ async function submitReservation() {
     reserveVisible.value = false
     // 复用同一 requestId 重试即为幂等，成功后作废
     requestId = ''
+    // 后端对 0 元订单会直接置为「已确认」(1)，收费订单才是「待支付」(0)
+    const created = data || {}
+    const createdStatus = Number(created.status)
+    const lines = [
+      `单号：${created.resvNo || '-'}`,
+      `金额：¥${money(created.amount)}`,
+      `状态：${resvStatusText(createdStatus, created.amount)}`
+    ]
+    if (createdStatus === 0) {
+      lines.push('请点击「去支付」完成模拟支付')
+    } else {
+      lines.push('可在「我的预约」中查看或取消')
+    }
     uni.showModal({
       title: '预约成功',
-      content: `单号：${(data && data.resvNo) || '-'}\n金额：¥${money(data && data.amount)}\n状态：待支付`,
-      confirmText: '去支付',
-      cancelText: '稍后',
+      content: lines.join('\n'),
+      confirmText: createdStatus === 0 ? '去支付' : '查看订单',
+      cancelText: createdStatus === 0 ? '稍后' : '继续预约',
       success: (res) => {
         if (res.confirm) {
-          uni.navigateTo({ url: '/pages/reservation/list' })
+          goReservationList()
         } else {
           loadSlots()
         }
@@ -387,6 +451,13 @@ onLoad((options) => {
 }
 .section-head {
   margin-bottom: 20rpx;
+}
+.slot-hint {
+  margin-top: 16rpx;
+  padding: 12rpx;
+  background-color: #f7f9fc;
+  border-radius: 8rpx;
+  text-align: center;
 }
 .court-item {
   border: 1rpx solid #eceef1;

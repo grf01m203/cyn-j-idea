@@ -26,6 +26,7 @@ export const useUserStore = defineStore('user', {
     role: (state) => state.userInfo?.role || '',
     isAdmin: (state) => ADMIN_ROLES.includes(state.userInfo?.role),
     nickname: (state) => state.userInfo?.nickname || state.userInfo?.username || '管理员',
+    avatar: (state) => state.userInfo?.avatar || '',
     userId: (state) => state.userInfo?.id
   },
   actions: {

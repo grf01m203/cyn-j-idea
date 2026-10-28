@@ -1,10 +1,12 @@
 package com.campus.venue.modules.queue.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.venue.common.constant.ConfigKeys;
 import com.campus.venue.common.constant.NoticeTypes;
 import com.campus.venue.common.constant.Status;
 import com.campus.venue.common.exception.BizException;
+import com.campus.venue.common.result.PageResult;
 import com.campus.venue.common.result.ResultCode;
 import com.campus.venue.modules.notice.service.NoticeService;
 import com.campus.venue.modules.queue.entity.WaitingQueue;
@@ -12,6 +14,8 @@ import com.campus.venue.modules.queue.mapper.WaitingQueueMapper;
 import com.campus.venue.modules.reservation.entity.Reservation;
 import com.campus.venue.modules.reservation.service.ReservationService;
 import com.campus.venue.modules.reservation.service.SlotService;
+import com.campus.venue.modules.user.entity.SysUser;
+import com.campus.venue.modules.user.mapper.SysUserMapper;
 import com.campus.venue.modules.user.service.SysConfigService;
 import com.campus.venue.modules.venue.entity.VenueCourt;
 import com.campus.venue.modules.venue.mapper.VenueCourtMapper;
@@ -20,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -27,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 候补队列服务：满场加入候补 -> 有人释放槽位 -> 通知队首 -> 10 分钟内确认 -> 生成预约。
@@ -38,6 +44,7 @@ public class QueueService {
 
     private final WaitingQueueMapper queueMapper;
     private final VenueCourtMapper venueCourtMapper;
+    private final SysUserMapper sysUserMapper;
     private final ReservationService reservationService;
     private final NoticeService noticeService;
     private final SysConfigService configService;
@@ -171,6 +178,42 @@ public class QueueService {
             tryPromote(q.getCourtId(), q.getResvDate(), q.getStartSlot(), q.getEndSlot());
         }
         return list.size();
+    }
+
+    // ------------------------------------------------------- 管理端接口 ----
+
+    /** 管理端：分页查看全部候补记录（含排位），供管理端候补监控页使用 */
+    public PageResult<Map<String, Object>> adminPage(Integer status, Long courtId, LocalDate date,
+                                                     long pageNum, long pageSize) {
+        Page<WaitingQueue> page = queueMapper.selectPage(new Page<>(pageNum, pageSize),
+                Wrappers.<WaitingQueue>lambdaQuery()
+                        .eq(status != null, WaitingQueue::getStatus, status)
+                        .eq(courtId != null, WaitingQueue::getCourtId, courtId)
+                        .eq(date != null, WaitingQueue::getResvDate, date)
+                        .orderByAsc(WaitingQueue::getId));
+        List<Long> courtIds = page.getRecords().stream().map(WaitingQueue::getCourtId).distinct().toList();
+        Map<Long, VenueCourt> courts = courtIds.isEmpty() ? Map.of()
+                : venueCourtMapper.selectBatchIds(courtIds).stream()
+                .collect(Collectors.toMap(VenueCourt::getId, c -> c));
+        List<Long> userIds = page.getRecords().stream().map(WaitingQueue::getUserId).distinct().toList();
+        Map<Long, String> names = userIds.isEmpty() ? Map.of()
+                : sysUserMapper.selectBatchIds(userIds).stream().collect(Collectors.toMap(
+                SysUser::getId,
+                u -> StringUtils.hasText(u.getNickname()) ? u.getNickname() : u.getUsername(),
+                (a, b) -> a));
+        return PageResult.of(page, q -> {
+            Map<String, Object> map = toMap(q, courts.get(q.getCourtId()));
+            map.put("userName", names.get(q.getUserId()));
+            if (q.getStatus() == Status.QUEUE_WAITING) {
+                long ahead = queueMapper.selectCount(Wrappers.<WaitingQueue>lambdaQuery()
+                        .eq(WaitingQueue::getCourtId, q.getCourtId())
+                        .eq(WaitingQueue::getResvDate, q.getResvDate())
+                        .eq(WaitingQueue::getStatus, Status.QUEUE_WAITING)
+                        .lt(WaitingQueue::getId, q.getId()));
+                map.put("position", ahead + 1);
+            }
+            return map;
+        });
     }
 
     private WaitingQueue mustGetOwned(Long userId, Long id) {

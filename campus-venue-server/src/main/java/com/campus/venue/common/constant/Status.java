@@ -45,6 +45,7 @@ public final class Status {
     public static final int SLOT_FREE = 0;
     public static final int SLOT_OCCUPIED = 1;
     public static final int SLOT_UNAVAILABLE = 2;
+    public static final int SLOT_PAST = 3;
 
     // 用户状态
     public static final int USER_ENABLED = 1;

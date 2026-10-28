@@ -38,7 +38,7 @@
               <view class="dot" v-if="!isRead(n)"></view>
               <text class="notice-title ellipsis">{{ n.title || typeText(n.type) }}</text>
             </view>
-            <text class="tag" :class="typeClass(n.type)">{{ typeText(n.type) }}</text>
+            <view class="tag" :class="typeClass(n.type)">{{ typeText(n.type) }}</view>
           </view>
           <text class="notice-content">{{ n.content }}</text>
           <view class="row-between notice-foot">
@@ -94,7 +94,8 @@ const TYPE_TEXT = {
   QUEUE_PROMOTED: '候补递补',
   CHECKIN_REMIND: '签到提醒',
   CREDIT_CHANGED: '信用变动',
-  ADMIN_NOTICE: '系统公告'
+  ADMIN_NOTICE: '系统公告',
+  ANNOUNCEMENT: '公告'
 }
 
 function typeText(t) {
@@ -103,7 +104,7 @@ function typeText(t) {
 function typeClass(t) {
   if (t === 'QUEUE_PROMOTED' || t === 'RESV_REMIND' || t === 'CHECKIN_REMIND') return 'tag-orange'
   if (t === 'RESV_CANCELLED' || t === 'TEAM_DISSOLVED' || t === 'CREDIT_CHANGED') return 'tag-red'
-  if (t === 'TEAM_FULL' || t === 'RESV_CREATED') return 'tag-blue'
+  if (t === 'TEAM_FULL' || t === 'RESV_CREATED' || t === 'ANNOUNCEMENT') return 'tag-blue'
   return 'tag-gray'
 }
 /** readFlag：兼容 boolean 与 0/1 */

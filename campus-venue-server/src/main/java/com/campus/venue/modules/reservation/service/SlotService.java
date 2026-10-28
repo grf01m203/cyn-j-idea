@@ -66,10 +66,18 @@ public class SlotService {
 
     /**
      * 校验预约时段是否满足开放规则，并返回按小时计价的价格。
+     * 同时拦截“过去的日期/已过去的时段”，避免产生开始时间早于当前时刻的预约。
      */
     public BigDecimal validateAndPrice(Long courtId, LocalDate date, int startSlot, int endSlot) {
-        if (startSlot < 0 || endSlot <= startSlot) {
+        if (startSlot < 0 || endSlot <= startSlot || endSlot > 48) {
             throw new BizException(ResultCode.PARAM_ERROR, "请选择正确的开始与结束时段");
+        }
+        LocalDate today = LocalDate.now();
+        if (date.isBefore(today)) {
+            throw new BizException(ResultCode.RESERVE_LIMIT, "不能预约过去的日期");
+        }
+        if (date.equals(today) && !toDateTime(date, startSlot).isAfter(LocalDateTime.now())) {
+            throw new BizException(ResultCode.RESERVE_LIMIT, "不能预约已过去的时段");
         }
         List<VenueOpenRule> rules = rulesOf(courtId, date);
         if (rules.isEmpty()) {
@@ -139,7 +147,7 @@ public class SlotService {
         return true;
     }
 
-    /** 当日 30 分钟粒度时段视图：0 空闲 / 1 已占用 / 2 不可用 */
+    /** 当日 30 分钟粒度时段视图：0 空闲 / 1 已占用 / 2 不可用 / 3 已过期 */
     public List<Map<String, Object>> daySlots(Long courtId, LocalDate date) {
         Set<Integer> free = new HashSet<>();
         for (VenueOpenRule rule : rulesOf(courtId, date)) {
@@ -150,10 +158,21 @@ public class SlotService {
             }
         }
         Set<Integer> occupied = occupiedSlots(courtId, date);
+        LocalDateTime now = LocalDateTime.now();
+        boolean isToday = date.equals(LocalDate.now());
         List<Map<String, Object>> result = new ArrayList<>();
         for (int slotNo = 0; slotNo < 48; slotNo++) {
-            int status = !free.contains(slotNo) ? Status.SLOT_UNAVAILABLE
-                    : (occupied.contains(slotNo) ? Status.SLOT_OCCUPIED : Status.SLOT_FREE);
+            int status;
+            if (!free.contains(slotNo)) {
+                status = Status.SLOT_UNAVAILABLE;
+            } else if (occupied.contains(slotNo)) {
+                status = Status.SLOT_OCCUPIED;
+            } else if (isToday && !toDateTime(date, slotNo).isAfter(now)) {
+                // 今天已经过去的时段不可再预约，前端按“已过期”渲染
+                status = Status.SLOT_PAST;
+            } else {
+                status = Status.SLOT_FREE;
+            }
             Map<String, Object> item = new HashMap<>(4);
             item.put("slotNo", slotNo);
             item.put("label", label(slotNo));

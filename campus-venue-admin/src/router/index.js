@@ -58,6 +58,12 @@ export const menuRoutes = [
     name: 'Notice',
     component: () => import('@/views/notice/index.vue'),
     meta: { title: '消息中心', icon: 'Bell' }
+  },
+  {
+    path: '/announcement',
+    name: 'Announcement',
+    component: () => import('@/views/announcement/index.vue'),
+    meta: { title: '公告管理', icon: 'Notification' }
   }
 ]
 

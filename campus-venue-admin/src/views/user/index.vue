@@ -98,8 +98,8 @@
           <span>{{ creditForm.nickname || creditForm.username }}（当前 {{ creditForm.currentScore }} 分）</span>
         </el-form-item>
         <el-form-item label="目标分值" prop="score">
-          <el-input-number v-model="creditForm.score" :min="0" :max="200" :step="5" />
-          <span class="text-muted ml-8">建议范围 0~200，初始 100</span>
+          <el-input-number v-model="creditForm.score" :min="0" :max="100" :step="5" />
+          <span class="text-muted ml-8">范围 0~100，初始 100</span>
         </el-form-item>
         <el-form-item label="调整原因" prop="reason">
           <el-input
@@ -152,7 +152,7 @@ const creditRules = {
     {
       validator: (rule, value, callback) => {
         if (value === null || value === undefined) return callback(new Error('请输入目标分值'))
-        if (value < 0 || value > 200) return callback(new Error('分值需在 0~200 之间'))
+        if (value < 0 || value > 100) return callback(new Error('分值需在 0~100 之间'))
         callback()
       },
       trigger: 'change'

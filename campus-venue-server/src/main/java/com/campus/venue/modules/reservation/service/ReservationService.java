@@ -182,11 +182,16 @@ public class ReservationService {
         if (resv.getStatus() != Status.RESV_PENDING_PAY && resv.getStatus() != Status.RESV_CONFIRMED) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "当前状态不可取消");
         }
-        if (LocalDateTime.now().isAfter(resv.getStartTime())) {
-            throw new BizException(ResultCode.TIME_WINDOW, "预约已开始，无法取消");
+        int window = configService.getInt(ConfigKeys.CHECKIN_WINDOW_MINUTES, 15);
+        LocalDateTime now = LocalDateTime.now();
+        // 开始前随时可取消；开始后仅保留 CHECKIN_WINDOW_MINUTES 的宽限期（逾期取消按迟到扣分），
+        // 超过宽限期即交由定时任务判定为“未签到”，此时不允许再取消。
+        if (now.isAfter(resv.getStartTime().plusMinutes(window))) {
+            throw new BizException(ResultCode.TIME_WINDOW,
+                    "预约已开始超过 " + window + " 分钟签到宽限期，无法取消");
         }
         int freeHours = configService.getInt(ConfigKeys.RESERVATION_CANCEL_FREE_HOURS, 2);
-        boolean late = LocalDateTime.now().isAfter(resv.getStartTime().minusHours(freeHours));
+        boolean late = now.isAfter(resv.getStartTime().minusHours(freeHours));
         int penalty = 0;
         if (late && !admin) {
             penalty = configService.getInt(ConfigKeys.CREDIT_LATE_CANCEL_DEDUCT, 3);
@@ -386,9 +391,10 @@ public class ReservationService {
         map.put("remark", r.getRemark());
         map.put("createTime", r.getCreateTime());
         map.put("canPay", r.getStatus() == Status.RESV_PENDING_PAY);
-        map.put("canCancel", (r.getStatus() == Status.RESV_PENDING_PAY || r.getStatus() == Status.RESV_CONFIRMED)
-                && LocalDateTime.now().isBefore(r.getStartTime()));
         int window = configService.getInt(ConfigKeys.CHECKIN_WINDOW_MINUTES, 15);
+        // 与 cancel() 的时间窗口保持一致：开始时间 + 签到宽限期内仍可取消（宽限期内取消按迟到扣分）
+        map.put("canCancel", (r.getStatus() == Status.RESV_PENDING_PAY || r.getStatus() == Status.RESV_CONFIRMED)
+                && LocalDateTime.now().isBefore(r.getStartTime().plusMinutes(window)));
         map.put("canCheckin", r.getStatus() == Status.RESV_CONFIRMED
                 && LocalDateTime.now().isAfter(r.getStartTime().minusMinutes(window))
                 && LocalDateTime.now().isBefore(r.getStartTime().plusMinutes(window)));

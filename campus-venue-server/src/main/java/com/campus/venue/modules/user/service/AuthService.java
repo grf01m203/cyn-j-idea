@@ -33,7 +33,7 @@ public class AuthService {
         SysUser user = sysUserMapper.selectOne(Wrappers.<SysUser>lambdaQuery()
                 .eq(SysUser::getUsername, username));
         if (user == null || !BCrypt.checkpw(password, user.getPassword())) {
-            throw new BizException(ResultCode.UNAUTHORIZED, "用户名或密码错误");
+            throw new BizException(ResultCode.LOGIN_FAILED, "用户名或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == Status.USER_DISABLED) {
             throw new BizException(ResultCode.FORBIDDEN, "账号已被禁用，请联系管理员");

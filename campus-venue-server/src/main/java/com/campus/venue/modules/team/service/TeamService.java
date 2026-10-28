@@ -1,10 +1,12 @@
 package com.campus.venue.modules.team.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.campus.venue.common.constant.ConfigKeys;
 import com.campus.venue.common.constant.NoticeTypes;
 import com.campus.venue.common.constant.Status;
 import com.campus.venue.common.exception.BizException;
+import com.campus.venue.common.result.PageResult;
 import com.campus.venue.common.result.ResultCode;
 import com.campus.venue.modules.credit.service.CreditService;
 import com.campus.venue.modules.notice.service.NoticeService;
@@ -310,6 +312,41 @@ public class TeamService {
             notifyMembers(team, NoticeTypes.TEAM_DISSOLVED, "拼场自动解散", "已到开始时间仍未成团，拼场自动解散");
         }
         return list.size();
+    }
+
+    // ------------------------------------------------------- 管理端接口 ----
+
+    /** 管理端：分页查看全部拼场（不再只返回招募中/满员的队伍） */
+    public PageResult<Map<String, Object>> adminPage(Integer status, Long courtId, LocalDate date,
+                                                     long pageNum, long pageSize) {
+        Page<Team> page = teamMapper.selectPage(new Page<>(pageNum, pageSize),
+                Wrappers.<Team>lambdaQuery()
+                        .eq(status != null, Team::getStatus, status)
+                        .eq(courtId != null, Team::getCourtId, courtId)
+                        .eq(date != null, Team::getResvDate, date)
+                        .orderByDesc(Team::getId));
+        List<Long> courtIds = page.getRecords().stream().map(Team::getCourtId).distinct().toList();
+        Map<Long, VenueCourt> courts = courtIds.isEmpty() ? Map.of()
+                : venueCourtMapper.selectBatchIds(courtIds).stream()
+                .collect(Collectors.toMap(VenueCourt::getId, c -> c));
+        Map<Long, String> names = userNames(page.getRecords().stream().map(Team::getCreatorId).toList());
+        return PageResult.of(page, t -> toMap(t, courts.get(t.getCourtId()), names.get(t.getCreatorId())));
+    }
+
+    /** 管理端：强制解散拼场（跳过队长身份校验；已成团需先取消关联预约） */
+    @Transactional(rollbackFor = Exception.class)
+    public void adminDissolve(Long teamId) {
+        Team team = mustGet(teamId);
+        if (team.getStatus() == Status.TEAM_CONFIRMED) {
+            throw new BizException(ResultCode.DATA_IN_USE, "该拼场已成团并生成预约单，请在预约管理中取消预约后再处理");
+        }
+        if (team.getStatus() == Status.TEAM_DISSOLVED) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "该拼场已解散");
+        }
+        team.setStatus(Status.TEAM_DISSOLVED);
+        teamMapper.updateById(team);
+        notifyMembers(team, NoticeTypes.TEAM_DISSOLVED, "拼场已被管理员解散",
+                "该拼场已被管理员解散，你可以重新发起或加入其他队伍");
     }
 
     private void notifyMembers(Team team, String type, String title, String content) {

@@ -18,4 +18,6 @@ public final class NoticeTypes {
     public static final String CHECKIN_REMIND = "CHECKIN_REMIND";
     public static final String CREDIT_CHANGED = "CREDIT_CHANGED";
     public static final String ADMIN_NOTICE = "ADMIN_NOTICE";
+    /** 管理员发布的公告（消息中心可见，管理端可撤销） */
+    public static final String ANNOUNCEMENT = "ANNOUNCEMENT";
 }

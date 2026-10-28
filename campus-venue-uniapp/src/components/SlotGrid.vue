@@ -4,6 +4,7 @@
       <view class="legend-item"><view class="legend-dot free"></view><text class="text-sm">空闲</text></view>
       <view class="legend-item"><view class="legend-dot busy"></view><text class="text-sm">已占用</text></view>
       <view class="legend-item"><view class="legend-dot off"></view><text class="text-sm">不可用</text></view>
+      <view class="legend-item" v-if="hasPast"><view class="legend-dot past"></view><text class="text-sm">已过期</text></view>
       <view class="legend-item"><view class="legend-dot picked"></view><text class="text-sm">已选</text></view>
     </view>
 
@@ -32,9 +33,10 @@
 <script setup>
 /**
  * 30 分钟粒度时段网格
- * 三态：0 空闲 / 1 已占用 / 2 不可用
+ * 四态：0 空闲 / 1 已占用 / 2 不可用 / 3 已过期（当天已过去的时段）
  * 点选逻辑：第一次点选起点，第二次点选终点；区间内必须全部空闲，否则防呆提示
  */
+import { computed } from 'vue'
 import { slotToTime } from '@/utils/date.js'
 
 const props = defineProps({
@@ -46,6 +48,9 @@ const props = defineProps({
   maxDuration: { type: Number, default: 0 }
 })
 const emit = defineEmits(['update:startSlot', 'update:endSlot', 'change'])
+
+/** 当天已过去的时段存在时才展示「已过期」图例 */
+const hasPast = computed(() => props.slots.some((s) => Number(s.status) === 3))
 
 function labelOf(slotNo) {
   return slotToTime(slotNo)
@@ -62,6 +67,7 @@ function slotClass(slot) {
     free: s === 0,
     busy: s === 1,
     off: s === 2,
+    past: s === 3,
     picked,
     'pick-start': slot.slotNo === props.startSlot,
     'pick-end': props.endSlot !== null && slot.slotNo === props.endSlot - 1
@@ -87,6 +93,10 @@ function onTap(slot) {
   }
   if (s === 2) {
     uni.showToast({ title: '该时段不可预约', icon: 'none' })
+    return
+  }
+  if (s === 3) {
+    uni.showToast({ title: '该时段已过，请选择之后的时段', icon: 'none' })
     return
   }
   const no = Number(slot.slotNo)
@@ -167,6 +177,10 @@ function onTap(slot) {
 .legend-dot.off {
   background-color: #e5e6eb;
 }
+.legend-dot.past {
+  background-color: #f2f3f5;
+  border: 1rpx dashed #c9cdd4;
+}
 .legend-dot.picked {
   background-color: #1677ff;
 }
@@ -203,6 +217,23 @@ function onTap(slot) {
 }
 .slot.off .slot-label {
   color: #b3b8bf;
+}
+.slot.past {
+  background-color: #f2f3f5;
+  border-style: dashed;
+  border-color: #d9dce1;
+}
+.slot.past .slot-label {
+  color: #b3b8bf;
+}
+/* 起止点高亮：选中起点后立即给出反馈，避免「点了没反应」 */
+.slot.pick-start,
+.slot.pick-end {
+  box-shadow: inset 0 0 0 3rpx #1677ff;
+}
+.slot.pick-start .slot-label,
+.slot.pick-end .slot-label {
+  color: #1677ff;
 }
 .slot.picked {
   background-color: #1677ff;

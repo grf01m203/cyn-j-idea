@@ -44,7 +44,7 @@
           <el-divider direction="vertical" />
           <el-dropdown trigger="click" @command="onCommand">
             <span class="user-info">
-              <el-avatar :size="28" class="user-avatar">{{ avatarText }}</el-avatar>
+              <el-avatar :size="28" :src="userStore.avatar || undefined" class="user-avatar">{{ avatarText }}</el-avatar>
               <span class="user-name">{{ userStore.nickname }}</span>
               <el-tag size="small" :type="isSysAdmin ? 'danger' : 'primary'">{{ roleText }}</el-tag>
               <el-icon><ArrowDown /></el-icon>

@@ -159,40 +159,60 @@ function chooseAvatar() {
   })
 }
 
-/** 上传头像：uni.uploadFile -> 后端 /api/v1/files/upload（自动走 OSS）-> PUT /auth/avatar */
-function doUploadAvatar(filePath) {
+/** 上传文件：uni.uploadFile -> POST /api/v1/files/upload（字段 file，dir=avatar） */
+function uploadAvatarFile(filePath) {
+  return new Promise((resolve, reject) => {
+    uni.uploadFile({
+      url: `${REQUEST_BASE}${API_PREFIX}/files/upload`,
+      filePath,
+      name: 'file',
+      formData: { dir: 'avatar' },
+      // 与 utils/request.js 保持一致：直接透传 token（后端 sa-token token-name=Authorization）
+      header: { Authorization: getToken() },
+      success: (res) => {
+        let body = {}
+        try {
+          body = typeof res.data === 'string' ? JSON.parse(res.data) : (res.data || {})
+        } catch (e) {
+          body = {}
+        }
+        if (body.code !== 0) {
+          reject({ code: body.code, message: body.message || '头像上传失败' })
+          return
+        }
+        // 后端返回 {storage,key,url,...}，url 才是可直接展示/落库的地址
+        const data = body.data
+        const url = data && typeof data === 'object' ? data.url : (typeof data === 'string' ? data : '')
+        if (!url) {
+          reject({ message: '上传返回缺少文件地址' })
+          return
+        }
+        resolve(url)
+      },
+      fail: (err) => reject({ message: '上传失败，请检查网络', raw: err })
+    })
+  })
+}
+
+/** 上传头像 -> PUT /auth/avatar，并同步 store 与本地存储，刷新页面显示 */
+async function doUploadAvatar(filePath) {
+  if (uploading.value) return
   uploading.value = true
   uni.showLoading({ title: '上传中', mask: true })
-  uni.uploadFile({
-    url: `${REQUEST_BASE}${API_PREFIX}/files/upload?dir=avatar`,
-    filePath,
-    name: 'file',
-    header: { Authorization: getToken() },
-    success: async (res) => {
-      let body = {}
-      try {
-        body = JSON.parse(res.data)
-      } catch (e) {
-        body = {}
-      }
-      if (body.code !== 0) {
-        toast(body.message || '头像上传失败')
-        return
-      }
-      try {
-        await updateAvatarApi(body.data.url)
-        await auth.fetchProfile()
-        toast('头像已更新', 'success')
-      } catch (e) {
-        toast('头像保存失败')
-      }
-    },
-    fail: () => toast('上传失败，请检查网络'),
-    complete: () => {
-      uploading.value = false
-      uni.hideLoading()
-    }
-  })
+  try {
+    const url = await uploadAvatarFile(filePath)
+    const updated = await updateAvatarApi(url)
+    const merged = updated && updated.id ? updated : { ...(profile.value || {}), avatar: url }
+    auth.profile = merged
+    // 同步 cv_user 本地存储，避免其它页面读取到旧头像
+    auth.persistUser({ ...(auth.user || {}), ...merged, avatar: url })
+    toast('头像已更新', 'success')
+  } catch (e) {
+    toast((e && e.message) || '头像上传失败')
+  } finally {
+    uploading.value = false
+    uni.hideLoading()
+  }
 }
 
 function roleText(r) {  if (r === 'STUDENT') return '学生'

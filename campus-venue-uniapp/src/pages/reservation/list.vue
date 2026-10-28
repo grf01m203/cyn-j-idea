@@ -120,7 +120,9 @@ const tabs = [
   { label: '已签到', value: 2 },
   { label: '已完成', value: 3 },
   { label: '未签到', value: 4 },
-  { label: '已取消', value: 5 }
+  { label: '已取消', value: 5 },
+  { label: '已过期', value: 6 },
+  { label: '逾期取消', value: 7 }
 ]
 
 const status = ref('')
@@ -138,12 +140,14 @@ const reason = ref('')
 const current = ref(null)
 
 function statusText(s) {
-  return (RESV_STATUS[s] && RESV_STATUS[s].text) || '未知'
+  const st = Number(s)
+  return (RESV_STATUS[st] && RESV_STATUS[st].text) || '未知状态'
 }
 function statusTagClass(s) {
-  if (s === 1 || s === 2) return 'tag-green'
-  if (s === 0) return 'tag-orange'
-  if (s === 4 || s === 7) return 'tag-red'
+  const st = Number(s)
+  if (st === 1 || st === 2) return 'tag-green'
+  if (st === 0) return 'tag-orange'
+  if (st === 4 || st === 7) return 'tag-red'
   return 'tag-gray'
 }
 function sourceText(s) {

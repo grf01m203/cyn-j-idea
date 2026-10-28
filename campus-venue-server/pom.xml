@@ -13,7 +13,7 @@
 
     <groupId>com.campus</groupId>
     <artifactId>campus-venue-server</artifactId>
-    <version>1.0.0</version>
+    <version>0.4.2</version>
     <name>campus-venue-server</name>
     <description>校园场馆预约与拼场组队系统 - 后端服务</description>
 

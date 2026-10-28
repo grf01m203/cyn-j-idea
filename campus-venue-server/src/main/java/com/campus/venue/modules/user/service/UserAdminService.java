@@ -45,7 +45,11 @@ public class UserAdminService {
         if (user == null) {
             throw new BizException(ResultCode.NOT_FOUND, "用户不存在");
         }
-        user.setStatus(status == null || status != Status.USER_DISABLED ? Status.USER_ENABLED : Status.USER_DISABLED);
+        // 严格校验目标状态，避免任意非 0 值（如 2、3）被静默当作“启用”处理
+        if (status == null || (status != Status.USER_ENABLED && status != Status.USER_DISABLED)) {
+            throw new BizException(ResultCode.PARAM_ERROR, "状态值不合法，只能为 1（启用）或 0（禁用）");
+        }
+        user.setStatus(status);
         sysUserMapper.updateById(user);
     }
 

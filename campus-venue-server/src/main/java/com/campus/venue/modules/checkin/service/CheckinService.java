@@ -21,32 +21,35 @@ import com.campus.venue.modules.venue.mapper.VenueCourtMapper;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 签到服务：一次性动态签到码（HMAC 签名 + 60 秒有效期），防止截图复用。
- * 签到成功后写 checkin_record（唯一索引保证一单一签），并给履约加分。
+ * 签到服务：6 位数字一次性签到码（60 秒有效期，单次核销后失效）。
+ * <p>
+ * 签到码由服务端随机生成并保存在内存中（单实例演示环境足够），
+ * 扫码 / 人工输入最终都调用 {@link #scan}，成功后写 checkin_record，
+ * 由唯一索引与预约状态双重保证一单一签。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CheckinService {
 
+    /** 签到码有效期：60 秒 */
     private static final long CODE_TTL_MILLIS = 60_000L;
+    /** 签到码位数（纯数字） */
+    private static final int CODE_LENGTH = 6;
 
     private final ReservationMapper reservationMapper;
     private final CheckinRecordMapper checkinRecordMapper;
@@ -56,13 +59,17 @@ public class CheckinService {
     private final NoticeService noticeService;
     private final SysConfigService configService;
 
-    @Value("${campus.checkin.secret:CampusVenue@2026}")
-    private String secret;
+    private final SecureRandom random = new SecureRandom();
+    /** 签到码 -> 预约与过期时间（单实例内存存储；集群部署需换成 Redis） */
+    private final Map<String, CodeEntry> codeStore = new ConcurrentHashMap<>();
 
     public record CodeDTO(@NotNull(message = "预约ID不能为空") Long reservationId) {
     }
 
     public record ScanDTO(@NotNull(message = "签到码不能为空") String code) {
+    }
+
+    private record CodeEntry(Long reservationId, long expireAt) {
     }
 
     public Map<String, Object> code(Long userId, Long reservationId) {
@@ -75,15 +82,16 @@ public class CheckinService {
         }
         int window = configService.getInt(ConfigKeys.CHECKIN_WINDOW_MINUTES, 15);
         LocalDateTime now = LocalDateTime.now();
-        if (now.isBefore(resv.getStartTime().minusMinutes(window)) || now.isAfter(resv.getStartTime().plusMinutes(window))) {
+        if (now.isBefore(resv.getStartTime().minusMinutes(window))
+                || now.isAfter(resv.getStartTime().plusMinutes(window))) {
             throw new BizException(ResultCode.TIME_WINDOW,
-                    String.format("签到时间为开始前后 %d 分钟（%s ~ %s）", window,
+                    String.format("签到时间为开始前后 %d 分钟（%s ~ %s），当前不在签到窗口内", window,
                             resv.getStartTime().minusMinutes(window), resv.getStartTime().plusMinutes(window)));
         }
+        purgeExpired();
         long expireAt = System.currentTimeMillis() + CODE_TTL_MILLIS;
-        String payload = reservationId + "|" + expireAt;
-        String code = Base64.getUrlEncoder().withoutPadding()
-                .encodeToString((payload + "|" + sign(payload)).getBytes(StandardCharsets.UTF_8));
+        String code = generateUniqueCode(reservationId, expireAt);
+
         Map<String, Object> map = new HashMap<>(3);
         map.put("code", code);
         map.put("expireAt", expireAt);
@@ -94,33 +102,21 @@ public class CheckinService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> scan(Long operatorId, String code, String ip) {
         if (!StringUtils.hasText(code)) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID);
+            throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "请输入 6 位签到码");
         }
-        String decoded;
-        try {
-            decoded = new String(Base64.getUrlDecoder().decode(code.trim()), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID);
+        String normalized = code.trim();
+        if (!normalized.matches("\\d{" + CODE_LENGTH + "}")) {
+            throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码为 6 位数字，请检查后重新输入");
         }
-        String[] parts = decoded.split("\\|");
-        if (parts.length != 3) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID);
+        CodeEntry entry = codeStore.get(normalized);
+        if (entry == null || System.currentTimeMillis() > entry.expireAt()) {
+            codeStore.remove(normalized);
+            throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码已过期，请重新生成");
         }
-        long reservationId;
-        long expireAt;
-        try {
-            reservationId = Long.parseLong(parts[0]);
-            expireAt = Long.parseLong(parts[1]);
-        } catch (NumberFormatException e) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID);
-        }
-        if (!sign(reservationId + "|" + expireAt).equals(parts[2])) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码签名校验失败");
-        }
-        if (System.currentTimeMillis() > expireAt) {
-            throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码已过期，请重新获取");
-        }
-        Reservation resv = mustGet(reservationId);
+        // 一次性：取到即作废，无论后续校验是否通过
+        codeStore.remove(normalized);
+
+        Reservation resv = mustGet(entry.reservationId());
         if (resv.getStatus() == Status.RESV_SIGNED || resv.getStatus() == Status.RESV_FINISHED) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "该预约已签到");
         }
@@ -190,23 +186,29 @@ public class CheckinService {
         return map;
     }
 
+    /** 生成 6 位数字码，冲突时重试（内存中同时存在的码极少，几乎不会冲突） */
+    private String generateUniqueCode(Long reservationId, long expireAt) {
+        for (int i = 0; i < 100; i++) {
+            int value = random.nextInt(900_000) + 100_000;
+            String candidate = String.valueOf(value);
+            CodeEntry existing = codeStore.putIfAbsent(candidate, new CodeEntry(reservationId, expireAt));
+            if (existing == null) {
+                return candidate;
+            }
+        }
+        throw new BizException(ResultCode.SYSTEM_ERROR, "生成签到码失败，请重试");
+    }
+
+    private void purgeExpired() {
+        long now = System.currentTimeMillis();
+        codeStore.entrySet().removeIf(e -> now > e.getValue().expireAt());
+    }
+
     private Reservation mustGet(Long id) {
         Reservation resv = reservationMapper.selectById(id);
         if (resv == null) {
             throw new BizException(ResultCode.NOT_FOUND, "预约不存在");
         }
         return resv;
-    }
-
-    private String sign(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            return Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) {
-            log.error("生成签到码失败", e);
-            throw new BizException(ResultCode.SYSTEM_ERROR, "生成签到码失败");
-        }
     }
 }

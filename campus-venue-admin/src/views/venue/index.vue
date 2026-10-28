@@ -83,25 +83,25 @@
           <el-input v-model.trim="form.address" maxlength="200" placeholder="如 校区东门内 50 米" />
         </el-form-item>
         <el-form-item label="开放时间" prop="openTime">
-          <div class="time-range">
-            <el-time-select
-              v-model="form.openTime"
-              start="06:00"
-              step="00:30"
-              end="23:00"
-              placeholder="开始时间"
-              style="width: 140px"
-            />
-            <span class="time-sep">至</span>
-            <el-time-select
-              v-model="form.closeTime"
-              start="06:00"
-              step="00:30"
-              end="23:30"
-              placeholder="结束时间"
-              style="width: 140px"
-            />
-          </div>
+          <el-time-select
+            v-model="form.openTime"
+            start="06:00"
+            step="00:30"
+            end="23:00"
+            placeholder="开始时间"
+            style="width: 140px"
+            @change="onOpenTimeChange"
+          />
+        </el-form-item>
+        <el-form-item label="关闭时间" prop="closeTime">
+          <el-time-select
+            v-model="form.closeTime"
+            start="06:00"
+            step="00:30"
+            end="23:30"
+            placeholder="结束时间"
+            style="width: 140px"
+          />
         </el-form-item>
         <el-form-item label="联系电话" prop="phone">
           <el-input v-model.trim="form.phone" maxlength="20" placeholder="如 0571-88888888" />
@@ -227,6 +227,12 @@ function resetForm () {
   formRef.value?.clearValidate()
 }
 
+/** 开放开始时间变化后，重新校验关闭时间，避免残留旧的校验结果 */
+function onOpenTimeChange () {
+  if (!form.closeTime) return
+  formRef.value?.validateField('closeTime', () => {})
+}
+
 function openCreate () {
   resetForm()
   dialogVisible.value = true
@@ -279,7 +285,7 @@ async function onSubmit () {
 async function onDelete (row) {
   try {
     await ElMessageBox.confirm(
-      `确认删除场馆「${row.name}」？该操作为危险操作，若场馆下仍有场地或有效预约，后端将拒绝删除。`,
+      `确认删除场馆「${row.name}」？删除前请先删除其下场地；若场馆下仍有场地或预约，后端将拒绝删除。`,
       '删除确认',
       { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
     )
@@ -302,15 +308,3 @@ function goCourts (row) {
 
 onMounted(loadList)
 </script>
-
-<style scoped>
-.time-range {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.time-sep {
-  color: var(--cv-text-muted);
-}
-</style>

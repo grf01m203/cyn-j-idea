@@ -64,9 +64,10 @@
           <input
             class="code-input"
             v-model="inputCode"
-            placeholder="请输入 6 位签到码"
+            placeholder="请输入 6 位数字签到码"
             placeholder-class="ph"
-            type="text"
+            type="number"
+            maxlength="6"
           />
           <button class="btn btn-default btn-sm scan-btn" @click="onScan">扫码</button>
           <button class="btn btn-primary btn-sm scan-btn" :disabled="scanLoading" @click="submitCode">

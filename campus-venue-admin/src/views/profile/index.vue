@@ -3,7 +3,7 @@
     <page-header
       title="我的"
       icon="User"
-      description="GET /api/v1/auth/me · POST /api/v1/auth/logout · GET /api/v1/credit/logs"
+      description="GET /api/v1/auth/me · POST /api/v1/files/upload · PUT /api/v1/auth/avatar · GET /api/v1/credit/logs"
     >
       <template #extra>
         <el-button :icon="Refresh" :loading="loading" @click="loadProfile">刷新</el-button>
@@ -17,7 +17,24 @@
           <div class="card-header"><span>账号信息</span></div>
         </template>
         <div class="profile-head">
-          <el-avatar :size="56" class="profile-avatar">{{ avatarText }}</el-avatar>
+          <el-upload
+            class="avatar-uploader"
+            accept="image/*"
+            :show-file-list="false"
+            :before-upload="beforeAvatarUpload"
+            :http-request="handleAvatarUpload"
+            :disabled="avatarUploading"
+          >
+            <div class="avatar-wrap" v-loading="avatarUploading">
+              <el-avatar :size="56" :src="me.avatar || undefined" class="profile-avatar">
+                <template v-if="!me.avatar">{{ avatarText }}</template>
+              </el-avatar>
+              <div class="avatar-mask">
+                <el-icon :size="16"><Camera /></el-icon>
+                <span>更换</span>
+              </div>
+            </div>
+          </el-upload>
           <div>
             <div class="profile-name">
               {{ me.nickname || me.username || '-' }}
@@ -29,6 +46,7 @@
               </el-tag>
             </div>
             <div class="text-muted mt-8">用户名：{{ me.username || '-' }}</div>
+            <div class="text-muted mt-8">点击头像上传新头像（支持 image/*，大小不超过 2MB）</div>
           </div>
         </div>
 
@@ -91,18 +109,23 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, SwitchButton } from '@element-plus/icons-vue'
+import { Camera, Refresh, SwitchButton } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { fetchCreditLogs } from '@/api/user'
+import { uploadFile } from '@/api/file'
+import { updateAvatar } from '@/api/auth'
 import { useUserStore } from '@/store/user'
 import { useNoticeStore } from '@/store/notice'
 import { roleLabel } from '@/utils/format'
+
+const AVATAR_MAX_SIZE = 2 * 1024 * 1024
 
 const router = useRouter()
 const userStore = useUserStore()
 const noticeStore = useNoticeStore()
 
 const loading = ref(false)
+const avatarUploading = ref(false)
 const me = ref({ ...(userStore.userInfo || {}) })
 
 const logs = ref([])
@@ -112,6 +135,50 @@ const logPageNum = ref(1)
 const logPageSize = ref(10)
 
 const avatarText = computed(() => (me.value.nickname || me.value.username || 'A').slice(0, 1).toUpperCase())
+
+/** 头像前置校验：仅图片、≤2MB */
+function beforeAvatarUpload (file) {
+  if (!file) return false
+  if (!String(file.type || '').startsWith('image/')) {
+    ElMessage.error('仅支持上传图片文件（image/*）')
+    return false
+  }
+  if (file.size > AVATAR_MAX_SIZE) {
+    ElMessage.error('图片大小不能超过 2MB')
+    return false
+  }
+  return true
+}
+
+/**
+ * 头像上传（自定义 http-request）：
+ * 1) POST /api/v1/files/upload（FormData: file + dir=avatar）→ 文件 URL
+ * 2) PUT /api/v1/auth/avatar {url} → 返回最新用户信息
+ * 3) 同步本地 user 存储（含刷新后仍生效）与页面展示
+ */
+async function handleAvatarUpload (options) {
+  avatarUploading.value = true
+  try {
+    const uploaded = await uploadFile(options.file, 'avatar')
+    const url = typeof uploaded === 'string' ? uploaded : (uploaded?.url || '')
+    if (!url) {
+      ElMessage.error('上传接口未返回文件 URL')
+      options.onError?.(new Error('上传接口未返回文件 URL'))
+      return
+    }
+    const user = await updateAvatar(url)
+    const avatar = user?.avatar || url
+    me.value = { ...me.value, ...(user || {}), avatar }
+    userStore.patchUser({ ...(user || {}), avatar })
+    ElMessage.success('头像已更新')
+    options.onSuccess?.(uploaded)
+  } catch (e) {
+    // 请求层已用 ElMessage 展示后端 message
+    options.onError?.(e)
+  } finally {
+    avatarUploading.value = false
+  }
+}
 
 async function loadProfile () {
   loading.value = true
@@ -178,6 +245,40 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.avatar-uploader {
+  display: block;
+  line-height: 0;
+}
+
+.avatar-wrap {
+  position: relative;
+  display: inline-block;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.avatar-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.1;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.avatar-wrap:hover .avatar-mask {
+  opacity: 1;
 }
 
 .profile-avatar {

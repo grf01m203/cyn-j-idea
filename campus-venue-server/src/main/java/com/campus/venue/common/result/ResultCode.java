@@ -11,6 +11,7 @@ public enum ResultCode {
     SUCCESS(0, "success"),
     PARAM_ERROR(10001, "参数校验失败"),
     UNAUTHORIZED(20001, "未登录或登录已失效"),
+    LOGIN_FAILED(20002, "用户名或密码错误"),
     FORBIDDEN(20003, "无权限访问"),
     SLOT_OCCUPIED(30001, "该时段已被占用，请选择其他时段"),
     CREDIT_NOT_ENOUGH(30002, "信用分不足，暂不能预约"),
@@ -21,6 +22,7 @@ public enum ResultCode {
     CHECKIN_CODE_INVALID(30007, "签到码无效或已过期"),
     RESERVE_LIMIT(30008, "不满足预约规则"),
     WINDOWS_ERROR(30009, "状态不允许该操作"),
+    DATA_IN_USE(30010, "数据被引用，无法执行当前操作"),
     NOT_FOUND(40001, "资源不存在"),
     SYSTEM_ERROR(50000, "系统繁忙，请稍后重试");
 

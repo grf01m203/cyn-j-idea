@@ -15,3 +15,8 @@ export function getMe () {
 export function logout () {
   return request.post('/auth/logout')
 }
+
+/** PUT /api/v1/auth/avatar {url} —— 更新当前登录人头像 */
+export function updateAvatar (url) {
+  return request.put('/auth/avatar', { url })
+}
