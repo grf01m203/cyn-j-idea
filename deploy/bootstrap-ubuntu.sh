@@ -53,7 +53,6 @@ echo "==> [5/7] 写入生产配置"
 cat > "$PROJECT_DIR/campus-venue.env" <<EOF
 DB_USERNAME=${DB_USER}
 DB_PASSWORD=${DB_PASS}
-CHECKIN_SECRET=$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
 EOF
 chmod 600 "$PROJECT_DIR/campus-venue.env"
 
@@ -72,9 +71,6 @@ spring:
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
-campus:
-  checkin:
-    secret: \${CHECKIN_SECRET}
 logging:
   file:
     name: /var/log/campus-venue/campus-venue.log

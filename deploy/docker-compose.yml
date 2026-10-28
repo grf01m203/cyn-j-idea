@@ -34,7 +34,6 @@ services:
     environment:
       DB_USERNAME: campus
       DB_PASSWORD: ${DB_PASSWORD:-Campus@2026}
-      CHECKIN_SECRET: ${CHECKIN_SECRET:-change-me-in-production}
       TZ: Asia/Shanghai
     volumes:
       - ../campus-venue-server/target/campus-venue-server.jar:/app/app.jar:ro

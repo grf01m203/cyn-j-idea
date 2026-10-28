@@ -20,8 +20,6 @@ sa-token:
   is-log: false
 
 campus:
-  checkin:
-    secret: ${CHECKIN_SECRET:change-me-in-production}
   # 阿里云 OSS（生产环境通过环境变量注入，切勿写入仓库）
   oss:
     enabled: ${OSS_ENABLED:false}

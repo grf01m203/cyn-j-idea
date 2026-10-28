@@ -65,8 +65,6 @@ management:
       show-details: never
 
 campus:
-  checkin:
-    secret: CampusVenue@2026
   # 阿里云 OSS 文件存储（凭据通过环境变量注入，默认关闭时回落本地磁盘 data/upload）
   oss:
     enabled: ${OSS_ENABLED:false}

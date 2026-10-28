@@ -54,7 +54,6 @@ cp campus-venue-server/src/main/resources/application-prod.example.yml /opt/camp
 sudo tee /opt/campus-venue/campus-venue.env >/dev/null <<'EOF'
 DB_USERNAME=campus
 DB_PASSWORD=改成你的数据库口令
-CHECKIN_SECRET=改成随机长字符串
 EOF
 sudo chmod 600 /opt/campus-venue/campus-venue.env
 ```
