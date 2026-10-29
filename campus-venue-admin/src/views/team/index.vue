@@ -54,28 +54,28 @@
         </div>
 
         <el-table :data="list" v-loading="loading" border stripe>
-          <el-table-column prop="id" label="ID" width="62" />
-          <el-table-column prop="courtName" label="场地" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="creatorName" label="发起人" width="95" show-overflow-tooltip />
-          <el-table-column label="日期" width="105">
+          <el-table-column prop="id" label="ID" width="56" />
+          <el-table-column prop="courtName" label="场地" min-width="100" show-overflow-tooltip />
+          <el-table-column prop="creatorName" label="发起人" width="74" show-overflow-tooltip />
+          <el-table-column label="日期" width="114">
             <template #default="{ row }">{{ date(row.resvDate) }}</template>
           </el-table-column>
           <el-table-column label="时段" width="130">
             <template #default="{ row }">{{ hm(row.startTime) }} ~ {{ hm(row.endTime) }}</template>
           </el-table-column>
-          <el-table-column label="成员数" width="85" align="center">
+          <el-table-column label="成员数" width="74" align="center">
             <template #default="{ row }">
               <span>{{ row.currentMembers ?? '-' }} / {{ row.maxMembers ?? '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="90" align="center">
+          <el-table-column label="状态" width="82" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="teamStatusType(row.status)">{{ teamStatusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="expireTime" label="招募截止" min-width="150" show-overflow-tooltip />
-          <el-table-column prop="createTime" label="创建时间" min-width="150" show-overflow-tooltip />
-          <el-table-column label="操作" width="110" fixed="right">
+          <el-table-column prop="expireTime" label="招募截止" min-width="170" show-overflow-tooltip />
+          <el-table-column prop="createTime" label="创建时间" min-width="170" show-overflow-tooltip />
+          <el-table-column label="操作" width="100">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row)">成员</el-button>
               <el-button

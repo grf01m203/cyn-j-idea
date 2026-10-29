@@ -42,11 +42,19 @@ public class CheckinController {
         return R.ok(checkinService.records(reservationId));
     }
 
+    /**
+     * 仅用于签到记录的展示字段，不参与任何安全判断。
+     * 只信任 Nginx 覆盖写入的 X-Real-IP；X-Forwarded-For 可被客户端随意伪造，不再读取。
+     */
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwarded)) {
-            return forwarded.split(",")[0].trim();
+        String real = request.getHeader("X-Real-IP");
+        if (StringUtils.hasText(real)) {
+            return real.trim().substring(0, Math.min(64, real.trim().length()));
         }
-        return request.getRemoteAddr();
+        String remote = request.getRemoteAddr();
+        if (!StringUtils.hasText(remote)) {
+            return "";
+        }
+        return remote.substring(0, Math.min(64, remote.length()));
     }
 }

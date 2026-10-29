@@ -36,7 +36,8 @@ import java.util.stream.Collectors;
 
 /**
  * 签到服务：6 位数字一次性签到码（60 秒有效期，单次核销后失效）。
- * 核销失败按来源（IP）计数，10 分钟内累计 5 次失败即锁定 10 分钟（v0.4.3 起）。
+ * 核销失败按登录用户计数，10 分钟内累计 5 次失败即锁定 10 分钟（v0.4.3 修复补丁：不再按 IP 计数，
+ * 避免 X-Forwarded-For 伪造绕过与同一出口 IP 下的跨用户误伤）。
  * <p>
  * 签到码由服务端随机生成并保存在内存中（单实例演示环境足够），
  * 扫码 / 人工输入最终都调用 {@link #scan}，成功后写 checkin_record，
@@ -58,6 +59,8 @@ public class CheckinService {
     private static final int DEFAULT_LOCK_MINUTES = 10;
     /** 失败次数统计窗口：10 分钟 */
     private static final long FAIL_WINDOW_MILLIS = 10 * 60_000L;
+    /** 已核销码的重复提交提示保留时长：5 分钟 */
+    private static final long USED_CODE_TTL_MILLIS = 5 * 60_000L;
 
     private final ReservationMapper reservationMapper;
     private final CheckinRecordMapper checkinRecordMapper;
@@ -70,8 +73,10 @@ public class CheckinService {
     private final SecureRandom random = new SecureRandom();
     /** 签到码 -> 预约与过期时间（单实例内存存储；集群部署需换成 Redis） */
     private final Map<String, CodeEntry> codeStore = new ConcurrentHashMap<>();
-    /** 来源（IP/用户）-> 失败计数与锁定截止时间（单实例内存；集群需 Redis） */
+    /** 登录用户 -> 失败计数与锁定截止时间（单实例内存；集群需 Redis） */
     private final Map<String, Attempt> attempts = new ConcurrentHashMap<>();
+    /** 已核销的签到码 -> 核销时间（仅用于区分“已使用”与“已过期”的提示） */
+    private final Map<String, Long> usedCodes = new ConcurrentHashMap<>();
 
     /** 失败计数（synchronized 保护，避免并发下计数丢失） */
     private static final class Attempt {
@@ -113,6 +118,8 @@ public class CheckinService {
                     String.format("签到时间为开始前后 %d 分钟（%s ~ %s），当前不在签到窗口内", window,
                             resv.getStartTime().minusMinutes(window), resv.getStartTime().plusMinutes(window)));
         }
+        // 已锁定则不允许继续取码（前端会展示剩余锁定时间）
+        assertNotLimited(limitKey(userId));
         purgeExpired();
         long expireAt = System.currentTimeMillis() + CODE_TTL_MILLIS;
         String code = generateUniqueCode(reservationId, expireAt);
@@ -126,7 +133,7 @@ public class CheckinService {
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> scan(Long operatorId, String code, String ip) {
-        String limitKey = limitKey(operatorId, ip);
+        String limitKey = limitKey(operatorId);
         assertNotLimited(limitKey);
         if (!StringUtils.hasText(code)) {
             failAttempt(limitKey);
@@ -140,6 +147,11 @@ public class CheckinService {
         CodeEntry entry = codeStore.get(normalized);
         if (entry == null || System.currentTimeMillis() > entry.expireAt()) {
             codeStore.remove(normalized);
+            Long usedAt = usedCodes.get(normalized);
+            if (usedAt != null && System.currentTimeMillis() - usedAt < USED_CODE_TTL_MILLIS) {
+                throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码已使用，请勿重复提交");
+            }
+            usedCodes.remove(normalized);
             failAttempt(limitKey);
             throw new BizException(ResultCode.CHECKIN_CODE_INVALID, "签到码已过期，请重新生成");
         }
@@ -172,6 +184,7 @@ public class CheckinService {
                 "预约 " + resv.getResvNo() + " 签到成功，祝使用愉快", "CHECKIN", record.getId());
 
         attempts.remove(limitKey);
+        usedCodes.put(normalized, System.currentTimeMillis());
         Map<String, Object> map = new HashMap<>(5);
         map.put("reservationId", resv.getId());
         map.put("resvNo", resv.getResvNo());
@@ -217,17 +230,14 @@ public class CheckinService {
         return map;
     }
 
-    /** 限流键：优先按客户端 IP，取不到时退化为操作人维度 */
-    private String limitKey(Long operatorId, String ip) {
-        if (StringUtils.hasText(ip)) {
-            return "ip:" + ip.trim();
-        }
+    /** 限流键：按登录用户维度计数（登录后才可签到，用户 ID 不可伪造） */
+    private String limitKey(Long operatorId) {
         return "user:" + operatorId;
     }
 
     /** 是否处于锁定状态；已锁定则直接拒绝，并提示剩余时间 */
-    public LimitState limitState(Long operatorId, String ip) {
-        Attempt a = attempts.get(limitKey(operatorId, ip));
+    public LimitState limitState(Long operatorId) {
+        Attempt a = attempts.get(limitKey(operatorId));
         if (a == null) {
             return new LimitState(false, 0);
         }
@@ -290,6 +300,7 @@ public class CheckinService {
     private void purgeExpired() {
         long now = System.currentTimeMillis();
         codeStore.entrySet().removeIf(e -> now > e.getValue().expireAt());
+        usedCodes.entrySet().removeIf(e -> now - e.getValue() > USED_CODE_TTL_MILLIS);
         attempts.entrySet().removeIf(e -> {
             Attempt a = e.getValue();
             synchronized (a) {
