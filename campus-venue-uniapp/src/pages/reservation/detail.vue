@@ -12,6 +12,10 @@
           <text class="tag" :class="statusTagClass(detail.status)">{{ statusText(detail.status) }}</text>
           <text class="hero-title">{{ detail.venueName }} · {{ detail.courtName }}</text>
           <text class="hero-sub">{{ detail.resvDate }} {{ shortTime(detail.startTime) }} - {{ shortTime(detail.endTime) }}</text>
+          <view class="hero-cd" v-if="cd">
+            <text class="hero-cd-label">{{ cd.label }}</text>
+            <text class="hero-cd-value">{{ cd.text }}</text>
+          </view>
         </view>
 
         <view class="card">
@@ -22,6 +26,10 @@
           <view class="kv">
             <text class="kv-k">时段</text>
             <text class="kv-v">{{ shortTime(detail.startTime) }} ~ {{ shortTime(detail.endTime) }}</text>
+          </view>
+          <view class="kv" v-if="detail.status === 1 && windowText">
+            <text class="kv-k">签到窗口</text>
+            <text class="kv-v">{{ windowText }}</text>
           </view>
           <view class="kv">
             <text class="kv-k">金额</text>
@@ -85,13 +93,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, computed, onUnmounted } from 'vue'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import StateView from '@/components/StateView.vue'
 import Modal from '@/components/Modal.vue'
 import { getReservationDetail, payMock, cancelReservation } from '@/api/reservation.js'
+import { getCheckinWindow } from '@/api/checkin.js'
 import { RESV_STATUS } from '@/config/index.js'
-import { money, shortTime, formatDateTime, toast } from '@/utils/date.js'
+import { money, shortTime, formatDateTime, toast, toTimestamp, durationText } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
 
 const id = ref('')
@@ -101,8 +110,42 @@ const errorMsg = ref('加载失败，请稍后重试')
 const cancelVisible = ref(false)
 const cancelling = ref(false)
 const reason = ref('')
+const windowInfo = ref(null)
+const nowMs = ref(Date.now())
+let timer = null
 
 const members = computed(() => (detail.value && detail.value.members) || [])
+
+const startMs = computed(() => toTimestamp(detail.value.startTime))
+const endMs = computed(() => toTimestamp(detail.value.endTime))
+const cd = computed(() => {
+  const st = Number(detail.value.status)
+  if (!startMs.value || !endMs.value) return null
+  if (![0, 1, 2].includes(st)) return null
+  const now = nowMs.value
+  if (now < startMs.value) return { label: '距预约开始', text: durationText(startMs.value - now) }
+  if (now < endMs.value) return { label: '距预约结束', text: durationText(endMs.value - now) }
+  return null
+})
+const windowText = computed(() => {
+  const w = windowInfo.value && Number(windowInfo.value.windowMinutes)
+  return w ? `开始前 ${w} 分钟 ~ 开始后 ${w} 分钟` : ''
+})
+
+function startTicker() {
+  stopTicker()
+  timer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+}
+function stopTicker() {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+onUnload(stopTicker)
+onUnmounted(stopTicker)
 
 function statusText(s) {
   const st = Number(s)
@@ -116,6 +159,10 @@ function statusTagClass(s) {
   return 'tag-gray'
 }
 function sourceText(s) {
+  const v = Number(s)
+  if (v === 2) return '拼场成团'
+  if (v === 3) return '候补递补'
+  if (v === 1) return '自主预约'
   return s === 'TEAM' ? '拼场成团' : s === 'QUEUE' ? '候补递补' : s || '自主预约'
 }
 
@@ -125,9 +172,18 @@ async function load() {
     const data = await getReservationDetail(id.value)
     detail.value = data || {}
     state.value = data ? 'success' : 'empty'
+    if (!windowInfo.value) loadWindow()
   } catch (e) {
     errorMsg.value = (e && e.message) || '加载失败，请稍后重试'
     state.value = 'error'
+  }
+}
+
+async function loadWindow() {
+  try {
+    windowInfo.value = await getCheckinWindow()
+  } catch (e) {
+    windowInfo.value = null
   }
 }
 
@@ -183,6 +239,7 @@ function goTeam() {
 onLoad((options) => {
   if (!requireLogin()) return
   id.value = paramOf(options, 'id')
+  startTicker()
   load()
 })
 </script>
@@ -204,6 +261,27 @@ onLoad((options) => {
   font-size: 26rpx;
   color: rgba(255, 255, 255, 0.9);
   margin-top: 10rpx;
+}
+.hero-cd {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  margin-top: 16rpx;
+  padding: 10rpx 20rpx;
+  border-radius: 12rpx;
+  background-color: rgba(255, 255, 255, 0.18);
+}
+.hero-cd-label {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.9);
+  margin-right: 12rpx;
+}
+.hero-cd-value {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1rpx;
 }
 .hero .tag {
   background-color: rgba(255, 255, 255, 0.22);

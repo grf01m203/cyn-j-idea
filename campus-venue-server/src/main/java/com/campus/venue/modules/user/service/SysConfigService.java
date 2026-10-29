@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,5 +42,36 @@ public class SysConfigService {
 
     public void refresh() {
         cache.clear();
+    }
+
+    /** 当前生效值（缓存未命中时读库） */
+    public int getIntCached(String key, int defaultValue) {
+        return getInt(key, defaultValue);
+    }
+
+    /**
+     * 更新系统参数：写库（存在则更新、不存在则插入）并同步本地缓存，管理端保存后立即生效。
+     */
+    public int setInt(String key, int value, String remark) {
+        SysConfig config = sysConfigMapper.selectOne(
+                Wrappers.<SysConfig>lambdaQuery().eq(SysConfig::getConfigKey, key));
+        LocalDateTime now = LocalDateTime.now();
+        if (config == null) {
+            config = new SysConfig();
+            config.setConfigKey(key);
+            config.setConfigValue(String.valueOf(value));
+            config.setRemark(remark);
+            config.setUpdateTime(now);
+            sysConfigMapper.insert(config);
+        } else {
+            config.setConfigValue(String.valueOf(value));
+            if (StringUtils.hasText(remark)) {
+                config.setRemark(remark);
+            }
+            config.setUpdateTime(now);
+            sysConfigMapper.updateById(config);
+        }
+        cache.put(key, value);
+        return value;
     }
 }

@@ -18,3 +18,8 @@ export function scanCheckin(code) {
 export function getCheckinRecords(reservationId) {
   return http.get(`${API_PREFIX}/checkin/records`, { reservationId })
 }
+
+/** GET /api/v1/checkin/window -> {windowMinutes, desc}（管理员可配置的签到窗口） */
+export function getCheckinWindow() {
+  return http.get(`${API_PREFIX}/checkin/window`)
+}

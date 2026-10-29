@@ -42,6 +42,12 @@ public class CheckinController {
         return R.ok(checkinService.records(reservationId));
     }
 
+    /** 签到窗口配置（学生端展示与倒计时提示用） */
+    @GetMapping("/window")
+    public R<Map<String, Object>> window() {
+        return R.ok(checkinService.windowInfo());
+    }
+
     /**
      * 仅用于签到记录的展示字段，不参与任何安全判断。
      * 只信任 Nginx 覆盖写入的 X-Real-IP；X-Forwarded-For 可被客户端随意伪造，不再读取。

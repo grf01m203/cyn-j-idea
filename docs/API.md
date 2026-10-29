@@ -66,6 +66,8 @@
 | POST | `/api/v1/admin/announcements` | `{title,content}`（标题 ≤50 字、内容 ≤2000 字） | `{id,title,content,publishTime,createTime,receiverCount}`；`receiverCount` 为实际推送用户数 |
 | GET | `/api/v1/admin/announcements?pageNum=&pageSize=` | — | 分页 `{id,title,content,publishTime,createTime}` |
 | DELETE | `/api/v1/admin/announcements/{id}` | — | `null`（撤销公告，同时删除学生端个人副本；不存在返回 `code=40001`） |
+| GET | `/api/v1/admin/configs/checkin-window` | — | `{key,windowMinutes,defaultMinutes,minMinutes,maxMinutes,desc}` |
+| PUT | `/api/v1/admin/configs/checkin-window` | `{windowMinutes}`（1~1440 的整数） | 更新后的同结构对象；保存后立即写入 `sys_config` 并刷新缓存，越界返回 `code=10001` |
 
 ## 4. 拼场 Team
 
@@ -99,9 +101,10 @@
 
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
-| POST | `/api/v1/checkin/code` | `{reservationId}` | `{code:"6 位数字",expireAt,expireSeconds:60}`（仅“已确认”订单、且处于开始前后 15 分钟窗口内可生成） |
+| POST | `/api/v1/checkin/code` | `{reservationId}` | `{code:"6 位数字",expireAt,expireSeconds:60}`（仅“已确认”订单、且处于开始前后 `checkin.window.minutes` 窗口内可生成，默认 15 分钟、可由管理员调整） |
 | POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期/已使用 `code=30007`（已使用提示“签到码已使用，请勿重复提交”）；当前状态不可签到 `code=30009`；连续输错被锁定 `code=30011`（提示剩余分钟数） |
 | GET | `/api/v1/checkin/records?reservationId=` | — | `[{id,reservationId,userId,userName,courtName,checkinTime,channel}]` |
+| GET | `/api/v1/checkin/window` | — | `{windowMinutes,desc}`（当前签到窗口，由管理员在「系统设置」配置，学生端展示用） |
 
 ## 7. 消息 Notice
 

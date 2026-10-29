@@ -2,8 +2,8 @@
   "name": "CampusVenue",
   "appid": "",
   "description": "校园场馆预约与拼场组队系统 · 学生端",
-  "versionName": "0.4.3",
-  "versionCode": "403",
+  "versionName": "0.5.0",
+  "versionCode": "500",
   "transformPx": false,
   "app-plus": {
     "usingComponents": true,

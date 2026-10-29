@@ -131,6 +131,15 @@ public class CheckinService {
         return map;
     }
 
+    /** 签到窗口配置（学生端展示「开始前后 N 分钟」） */
+    public Map<String, Object> windowInfo() {
+        int window = configService.getInt(ConfigKeys.CHECKIN_WINDOW_MINUTES, 15);
+        Map<String, Object> map = new HashMap<>(3);
+        map.put("windowMinutes", window);
+        map.put("desc", String.format("签到窗口：开始时间前 %d 分钟 ~ 开始后 %d 分钟", window, window));
+        return map;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> scan(Long operatorId, String code, String ip) {
         String limitKey = limitKey(operatorId);

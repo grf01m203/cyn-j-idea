@@ -64,6 +64,12 @@ export const menuRoutes = [
     name: 'Announcement',
     component: () => import('@/views/announcement/index.vue'),
     meta: { title: '公告管理', icon: 'Notification' }
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/views/settings/index.vue'),
+    meta: { title: '系统设置', icon: 'Setting' }
   }
 ]
 

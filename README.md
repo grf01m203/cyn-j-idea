@@ -4,7 +4,7 @@
 >
 > 选题定位：一段式完成「前后端 + 数据库」「多端互动」「每人可追溯的 GitHub 提交」「部署到服务器可跨网访问」四项硬性要求。
 >
-> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea>（v0.4.3 @ 标签 `v0.4.3`；v0.4.2 @ `fc78114`）；GitHub 镜像 <https://github.com/grf01m203/cyn-j-idea>。
+> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea>（v0.5.0 @ 标签 `v0.5.0`；v0.4.3 @ `5f35ffe`（修复补丁 `025b15c`）；v0.4.2 @ `fc78114`）；GitHub 镜像 <https://github.com/grf01m203/cyn-j-idea>。
 
 ---
 

@@ -68,6 +68,23 @@ export function countdownText(ms) {
 }
 
 /**
+ * 剩余毫秒数 -> 人类可读倒计时（天/时/分/秒，去掉前导零单位）
+ * 例：1天 02:03:04 / 2小时 13:05 / 13:05
+ */
+export function durationText(ms) {
+  if (ms == null || ms < 0) ms = 0
+  const total = Math.floor(ms / 1000)
+  const d = Math.floor(total / 86400)
+  const h = Math.floor((total % 86400) / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const hms = `${pad(m)}:${pad(s)}`
+  if (d > 0) return `${d}天 ${pad(h)}:${hms}`
+  if (h > 0) return `${h}小时 ${hms}`
+  return hms
+}
+
+/**
  * 解析后端时间字符串为毫秒时间戳（兼容 iOS 与多种分隔符）
  */
 export function toTimestamp(d) {

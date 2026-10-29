@@ -41,6 +41,10 @@
             <text class="text-sm text-muted">🕘 {{ shortTime(item.startTime) }} - {{ shortTime(item.endTime) }}</text>
           </view>
 
+          <view class="resv-cd" v-if="countdownText(item)">
+            <text class="resv-cd-text">{{ countdownText(item) }}</text>
+          </view>
+
           <view class="row-between resv-foot">
             <view class="row">
               <text class="amount">¥{{ money(item.amount) }}</text>
@@ -101,13 +105,13 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { onShow, onPullDownRefresh, onReachBottom } from '@dcloudio/uni-app'
+import { ref, onUnmounted } from 'vue'
+import { onShow, onHide, onUnload, onPullDownRefresh, onReachBottom } from '@dcloudio/uni-app'
 import StateView from '@/components/StateView.vue'
 import Modal from '@/components/Modal.vue'
 import { getMyReservations, payMock, cancelReservation } from '@/api/reservation.js'
 import { RESV_STATUS, PAGE_SIZE } from '@/config/index.js'
-import { money, shortTime, toast } from '@/utils/date.js'
+import { money, shortTime, toast, toTimestamp, durationText } from '@/utils/date.js'
 import { requireLogin, isLogin } from '@/utils/nav.js'
 import { useNoticeStore } from '@/store/notice.js'
 
@@ -139,6 +143,36 @@ const cancelling = ref(false)
 const reason = ref('')
 const current = ref(null)
 
+const nowMs = ref(Date.now())
+let ticker = null
+
+function startTicker() {
+  stopTicker()
+  ticker = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
+}
+function stopTicker() {
+  if (ticker) {
+    clearInterval(ticker)
+    ticker = null
+  }
+}
+
+/** 距开始 / 距结束倒计时（仅待支付、已确认、已签到且有完整时间时展示） */
+function countdownText(item) {
+  if (!item) return ''
+  const st = Number(item.status)
+  if (![0, 1, 2].includes(st)) return ''
+  const start = toTimestamp(item.startTime)
+  const end = toTimestamp(item.endTime)
+  if (!start || !end) return ''
+  const now = nowMs.value
+  if (now < start) return `距开始 ${durationText(start - now)}`
+  if (now < end) return `距结束 ${durationText(end - now)}`
+  return ''
+}
+
 function statusText(s) {
   const st = Number(s)
   return (RESV_STATUS[st] && RESV_STATUS[st].text) || '未知状态'
@@ -151,7 +185,11 @@ function statusTagClass(s) {
   return 'tag-gray'
 }
 function sourceText(s) {
-  return s === 'TEAM' ? '拼场成团' : s === 'QUEUE' ? '候补递补' : String(s)
+  const v = Number(s)
+  if (v === 2) return '拼场成团'
+  if (v === 3) return '候补递补'
+  if (v === 1) return '自主预约'
+  return s === 'TEAM' ? '拼场成团' : s === 'QUEUE' ? '候补递补' : String(s || '自主预约')
 }
 
 async function load(reset = false) {
@@ -251,8 +289,13 @@ async function submitCancel() {
 onShow(() => {
   if (!requireLogin()) return
   noticeStore.refreshUnread()
+  startTicker()
   load(true)
 })
+
+onHide(stopTicker)
+onUnload(stopTicker)
+onUnmounted(stopTicker)
 
 onPullDownRefresh(async () => {
   if (!isLogin()) {
@@ -310,6 +353,15 @@ onReachBottom(() => loadMore())
   font-size: 26rpx;
   color: #4e5969;
   max-width: 420rpx;
+}
+.resv-cd {
+  margin-top: 12rpx;
+}
+.resv-cd-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1677ff;
+  font-variant-numeric: tabular-nums;
 }
 .resv-title {
   display: block;

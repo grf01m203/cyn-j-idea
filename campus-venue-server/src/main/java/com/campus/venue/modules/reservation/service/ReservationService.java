@@ -257,7 +257,9 @@ public class ReservationService {
             item.put("isLeader", m.getIsLeader() != null && m.getIsLeader() == 1);
             return item;
         }).toList();
-        Map<String, Object> map = toMap(resv, null, null, userId);
+        VenueCourt court = venueCourtMapper.selectById(resv.getCourtId());
+        Venue venue = court == null ? null : venueMapper.selectById(court.getVenueId());
+        Map<String, Object> map = toMap(resv, court, venue, userId);
         map.put("members", memberVOs);
         return map;
     }

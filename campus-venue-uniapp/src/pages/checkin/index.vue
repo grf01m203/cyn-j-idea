@@ -7,6 +7,7 @@
           <text class="card-title">我的签到码</text>
           <text class="text-sm text-muted" v-if="current">{{ statusText(current.status) }}</text>
         </view>
+        <text class="window-tip text-sm text-muted" v-if="windowText">{{ windowText }}</text>
 
         <StateView
           :status="pageState"
@@ -113,11 +114,11 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import StateView from '@/components/StateView.vue'
 import { getMyReservations } from '@/api/reservation.js'
-import { getCheckinCode, scanCheckin, getCheckinRecords } from '@/api/checkin.js'
+import { getCheckinCode, scanCheckin, getCheckinRecords, getCheckinWindow } from '@/api/checkin.js'
 import { RESV_STATUS } from '@/config/index.js'
 import { countdownText, formatDateTime, shortTime, toTimestamp, toast } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
@@ -144,6 +145,12 @@ const recordState = ref('loading')
 const recordError = ref('加载失败，请稍后重试')
 /** 从「我的预约」跳转时带过来的预约 id */
 const preselectId = ref('')
+/** 管理员配置的签到窗口（开始前后各 N 分钟），用于提示 */
+const windowInfo = ref(null)
+const windowText = computed(() => {
+  const w = windowInfo.value && Number(windowInfo.value.windowMinutes)
+  return w ? `签到窗口：开始前 ${w} 分钟 ~ 开始后 ${w} 分钟（由管理员配置）` : ''
+})
 
 let timer = null
 
@@ -335,14 +342,27 @@ function goReservationList() {
 onLoad((options) => {
   if (!requireLogin()) return
   preselectId.value = paramOf(options, 'reservationId')
+  loadWindow()
   initReservation()
 })
+
+async function loadWindow() {
+  try {
+    windowInfo.value = await getCheckinWindow()
+  } catch (e) {
+    windowInfo.value = null
+  }
+}
 
 onUnmounted(() => stopCountdown())
 </script>
 
 <style scoped>
 .card-title {
+  display: block;
+  margin-bottom: 12rpx;
+}
+.window-tip {
   display: block;
   margin-bottom: 12rpx;
 }
