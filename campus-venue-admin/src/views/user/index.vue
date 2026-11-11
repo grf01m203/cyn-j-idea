@@ -42,23 +42,23 @@
           @update:page-size="(v) => (query.pageSize = v)"
           @pagination-change="loadList"
         >
-          <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="username" label="用户名" width="130" show-overflow-tooltip />
-          <el-table-column prop="nickname" label="昵称" width="120" show-overflow-tooltip />
-          <el-table-column prop="studentNo" label="学号/工号" width="130" show-overflow-tooltip />
-          <el-table-column prop="phone" label="手机号" width="130" />
-          <el-table-column label="角色" width="120">
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column prop="username" label="用户名" width="110" show-overflow-tooltip />
+          <el-table-column prop="nickname" label="昵称" width="100" show-overflow-tooltip />
+          <el-table-column prop="studentNo" label="学号/工号" width="120" show-overflow-tooltip />
+          <el-table-column prop="phone" label="手机号" width="120" />
+          <el-table-column label="角色" width="100">
             <template #default="{ row }">
               <el-tag size="small" :type="roleTagType(row.role)">{{ roleLabel(row.role) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="信用分" width="100" align="center">
+          <el-table-column label="信用分" width="80" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="creditType(row.creditScore)">{{ row.creditScore ?? '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="violateCount" label="违约次数" width="100" align="center" />
-          <el-table-column label="黑名单" width="130">
+          <el-table-column prop="violateCount" label="违约次数" width="80" align="center" />
+          <el-table-column label="黑名单" width="110">
             <template #default="{ row }">
               <span v-if="isBlacklisted(row.blacklistUntil)" class="text-danger">
                 {{ dateTime(row.blacklistUntil) }}
@@ -66,13 +66,13 @@
               <span v-else class="text-muted">无</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="90" align="center">
+          <el-table-column label="状态" width="80" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="userStatusType(row.status)">{{ userStatusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="createTime" label="注册时间" width="170" show-overflow-tooltip />
-          <el-table-column label="操作" width="320" fixed="right">
+          <el-table-column prop="createTime" label="注册时间" width="150" show-overflow-tooltip />
+          <el-table-column label="操作" width="300" fixed="right">
             <template #default="{ row }">
               <el-button
                 link

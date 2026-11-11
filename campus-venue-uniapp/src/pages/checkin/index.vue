@@ -46,7 +46,7 @@
             <text class="code-tip text-sm text-muted" v-if="expireAt">服务端过期时间：{{ formatDateTime(expireAt) }}</text>
             <view class="qr-wrap" v-if="code && remainMs > 0 && qrDataUrl">
               <image class="qr-img" :src="qrDataUrl" mode="aspectFit" />
-              <text class="code-tip text-sm text-muted">用手机相机扫描二维码，可直接读到 6 位签到码</text>
+              <text class="code-tip text-sm text-muted">到馆后向工作人员出示此二维码，由核销台扫码完成核销</text>
             </view>
           </view>
           <view class="code-box code-empty" v-else>
@@ -59,55 +59,15 @@
         </StateView>
       </view>
 
-      <!-- 扫码 / 输入码 -->
+      <!-- 核销方式说明 -->
       <view class="card">
-        <text class="card-title">扫码 / 输入码签到</text>
-        <text class="text-sm text-muted scan-tip">
-          场馆核验台可输入你的签到码完成核销；也可由核验人员用手机相机扫描上方二维码读取 6 位码。
-        </text>
-        <view class="row scan-row">
-          <input
-            class="code-input"
-            v-model="inputCode"
-            placeholder="请输入 6 位数字签到码"
-            placeholder-class="ph"
-            type="number"
-            maxlength="6"
-          />
-          <button class="btn btn-default btn-sm scan-btn" @click="onScan">扫码</button>
-          <button class="btn btn-primary btn-sm scan-btn" :disabled="scanLoading" @click="submitCode">
-            提交
-          </button>
+        <text class="card-title">如何核销</text>
+        <view class="tip-list">
+          <text class="tip-item">1. 到达场馆后，向工作人员出示上方二维码或 6 位数字签到码。</text>
+          <text class="tip-item">2. 由场馆管理员在管理端「签到记录 → 现场核销台」扫码或输入 6 位码完成核销。</text>
+          <text class="tip-item">3. 核销成功后你会收到站内消息「签到成功」，可在「消息」中查看。</text>
+          <text class="tip-item">4. 签到码为一次性使用、60 秒有效；过期请点击「重新生成签到码」。</text>
         </view>
-        <view class="scan-result" v-if="scanResult">
-          <text class="text-success text-sm">
-            核销成功：预约单 #{{ scanResult.reservationId }}，状态 {{ scanResult.status }}，
-            {{ formatDateTime(scanResult.checkinTime) }}
-          </text>
-        </view>
-      </view>
-
-      <!-- 签到记录 -->
-      <view class="card">
-        <view class="row-between">
-          <text class="card-title">签到记录</text>
-          <text class="text-sm text-primary" @click="loadRecords">刷新</text>
-        </view>
-        <StateView
-          :status="recordState"
-          loading-text="正在加载签到记录…"
-          :error-text="recordError"
-          empty-text="暂无签到记录"
-          @retry="loadRecords"
-        >
-          <view class="rec-item" v-for="r in records" :key="r.id">
-            <view class="col flex-1">
-              <text class="rec-name">{{ r.userName || '本人' }}</text>
-              <text class="text-sm text-muted">{{ formatDateTime(r.checkinTime) }}</text>
-            </view>
-            <text class="tag tag-blue">{{ r.channel || 'CODE' }}</text>
-          </view>
-        </StateView>
       </view>
     </view>
   </view>
@@ -118,7 +78,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import StateView from '@/components/StateView.vue'
 import { getMyReservations } from '@/api/reservation.js'
-import { getCheckinCode, scanCheckin, getCheckinRecords, getCheckinWindow } from '@/api/checkin.js'
+import { getCheckinCode, getCheckinWindow } from '@/api/checkin.js'
 import { RESV_STATUS } from '@/config/index.js'
 import { countdownText, formatDateTime, shortTime, toTimestamp, toast } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
@@ -136,13 +96,6 @@ const codeLoading = ref(false)
 /** 当前签到码对应的二维码（SVG data URI，由 <image> 展示） */
 const qrDataUrl = ref('')
 
-const inputCode = ref('')
-const scanLoading = ref(false)
-const scanResult = ref(null)
-
-const records = ref([])
-const recordState = ref('loading')
-const recordError = ref('加载失败，请稍后重试')
 /** 从「我的预约」跳转时带过来的预约 id */
 const preselectId = ref('')
 /** 管理员配置的签到窗口（开始前后各 N 分钟），用于提示 */
@@ -228,7 +181,6 @@ async function initReservation() {
         preselectId.value && candidates.value.find((r) => String(r.id) === String(preselectId.value))
       current.value = pre || candidates.value[0]
       pageState.value = 'success'
-      loadRecords()
     } else {
       pageState.value = 'empty'
     }
@@ -245,11 +197,9 @@ function switchReservation(r) {
   expireAt.value = ''
   qrDataUrl.value = ''
   remainMs.value = 0
-  scanResult.value = null
-  loadRecords()
 }
 
-/** POST /checkin/code */
+/** POST /checkin/code（学生生成自己的签到码；核销由管理端完成） */
 async function fetchCode() {
   if (!current.value) {
     toast('请先选择预约单')
@@ -266,69 +216,6 @@ async function fetchCode() {
     if (e && e.message) toast(e.message)
   } finally {
     codeLoading.value = false
-  }
-}
-
-/** 扫码（小程序端调用摄像头；H5 提示手动输入） */
-function onScan() {
-  // #ifdef H5
-  toast('H5 浏览器不支持直接调用摄像头扫码：可用另一台手机的相机扫描上方二维码，读取 6 位码后在此输入')
-  return
-  // #endif
-  if (typeof uni.scanCode !== 'function') {
-    toast('当前环境不支持扫码，请手动输入签到码')
-    return
-  }
-  uni.scanCode({
-    onlyFromCamera: false,
-    scanType: ['qrCode', 'barCode'],
-    success: (res) => {
-      const value = (res && res.result) || ''
-      if (!value) {
-        toast('未识别到有效签到码')
-        return
-      }
-      inputCode.value = String(value).trim()
-      submitCode()
-    },
-    fail: () => {
-      toast('扫码已取消或不可用，可手动输入签到码')
-    }
-  })
-}
-
-/** POST /checkin/scan */
-async function submitCode() {
-  const c = inputCode.value.trim()
-  if (!c) {
-    toast('请输入签到码')
-    return
-  }
-  scanLoading.value = true
-  try {
-    const data = await scanCheckin(c)
-    scanResult.value = data || {}
-    inputCode.value = ''
-    toast('核销成功', 'success')
-    loadRecords()
-  } catch (e) {
-    // 30007 签到码无效或已过期等，直接展示后端 message
-    if (e && e.message) toast(e.message)
-  } finally {
-    scanLoading.value = false
-  }
-}
-
-/** GET /checkin/records?reservationId= */
-async function loadRecords() {
-  recordState.value = 'loading'
-  try {
-    const data = await getCheckinRecords(current.value ? current.value.id : '')
-    records.value = Array.isArray(data) ? data : []
-    recordState.value = records.value.length ? 'success' : 'empty'
-  } catch (e) {
-    recordError.value = (e && e.message) || '加载失败，请稍后重试'
-    recordState.value = 'error'
   }
 }
 
@@ -438,48 +325,14 @@ onUnmounted(() => stopCountdown())
 .code-btn {
   margin-top: 12rpx;
 }
-.scan-tip {
-  display: block;
-  margin-bottom: 16rpx;
-}
-.scan-row {
+.tip-list {
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  flex-direction: column;
+  margin-top: 8rpx;
 }
-.code-input {
-  flex: 1;
-  height: 80rpx;
-  background-color: #f7f8fa;
-  border-radius: 10rpx;
-  padding: 0 20rpx;
-  font-size: 28rpx;
-}
-.scan-btn {
-  margin-left: 16rpx;
-  width: 130rpx;
-}
-.scan-result {
-  margin-top: 16rpx;
-  padding: 16rpx;
-  background-color: #f2fbf0;
-  border-radius: 10rpx;
-}
-.rec-item {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  padding: 18rpx 0;
-  border-bottom: 1rpx solid #f5f6f8;
-}
-.rec-item:last-child {
-  border-bottom: none;
-}
-.rec-name {
-  font-size: 28rpx;
-  color: #1f2329;
-}
-.ph {
-  color: #b3b8bf;
+.tip-item {
+  font-size: 26rpx;
+  color: #4e5969;
+  line-height: 1.7;
 }
 </style>

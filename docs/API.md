@@ -23,6 +23,7 @@
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | `{username,password}` | `{token, user:{id,username,nickname,role,creditScore}}` |
+| POST | `/api/v1/auth/register` | `{username,password,nickname,studentNo,phone?}`（公开接口，登录页「立即注册」） | `{token, user:{...}}`（注册即登录）；用户名/学号重复或被占用返回 `code=10001` 及具体原因 |
 | GET | `/api/v1/auth/me` | — | `{id,username,nickname,studentNo,phone,role,creditScore,violateCount,blacklistUntil,status}` |
 | POST | `/api/v1/auth/logout` | — | `null` |
 
@@ -93,6 +94,8 @@
 
 ## 6. 签到 Checkin
 
+> 相关系统配置（`sys_config`，管理员或运维可调）：`checkin.window.minutes`（签到窗口，默认 15，管理端「系统设置」可视化调整）、`checkin.max.fail`/`checkin.lock.minutes`（失败锁定）、`reservation.max.advance.days`（最多提前预约天数，默认 7）、`reservation.remind.minutes`（开始前站内提醒，默认 30）。
+
 签到码为 **6 位数字**（如 `384921`），一次性使用，生成后 **60 秒**内有效；由服务端随机生成并保存在内存（单实例演示环境；集群部署需替换为 Redis）。扫码与人工输入最终调用同一个 `/checkin/scan` 接口，记录的 `channel` 均为 `QRCODE`。
 
 > v0.4.3 起：① 学生端会把 6 位码离线渲染为二维码（纯前端 SVG，无网络依赖），核验人员用手机相机扫描即可读到码；② `scan` 接口**按登录用户**做失败计数（不按 IP，避免伪造 `X-Forwarded-For` 绕过与同一出口 IP 下跨用户误伤）：10 分钟窗口内累计 `checkin.max.fail`（默认 5）次失败即锁定该用户 `checkin.lock.minutes`（默认 10）分钟，期间**取码与核销均返回 `30011`**（提示剩余分钟数）；成功核销清零；锁定到期后需重新累计 5 次，已核销码在 5 分钟内重复提交提示「签到码已使用，请勿重复提交」。
@@ -102,8 +105,10 @@
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
 | POST | `/api/v1/checkin/code` | `{reservationId}` | `{code:"6 位数字",expireAt,expireSeconds:60}`（仅“已确认”订单、且处于开始前后 `checkin.window.minutes` 窗口内可生成，默认 15 分钟、可由管理员调整） |
-| POST | `/api/v1/checkin/scan` | `{code}` | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期/已使用 `code=30007`（已使用提示“签到码已使用，请勿重复提交”）；当前状态不可签到 `code=30009`；连续输错被锁定 `code=30011`（提示剩余分钟数） |
-| GET | `/api/v1/checkin/records?reservationId=` | — | `[{id,reservationId,userId,userName,courtName,checkinTime,channel}]` |
+> v0.6.0 起：`/checkin/scan` 与 `/checkin/records` 仅管理员（`VENUE_ADMIN`/`SYS_ADMIN`）可调用，学生端只展示「我的签到码」与「如何核销」说明；核销入口为管理端「签到记录 → 现场核销台」。
+
+| POST | `/api/v1/checkin/scan` | `{code}`（管理员） | `{reservationId,resvNo,status:2,checkinTime,operatorId}`；码错误/已过期/已使用 `code=30007`（已使用提示“签到码已使用，请勿重复提交”）；当前状态不可签到 `code=30009`；连续输错被锁定 `code=30011`（提示剩余分钟数） |
+| GET | `/api/v1/checkin/records?reservationId=` | —（管理员） | `[{id,reservationId,userId,userName,courtName,checkinTime,channel}]` |
 | GET | `/api/v1/checkin/window` | — | `{windowMinutes,desc}`（当前签到窗口，由管理员在「系统设置」配置，学生端展示用） |
 
 ## 7. 消息 Notice
@@ -134,6 +139,9 @@
 | GET | `/api/v1/admin/users?keyword=&pageNum=&pageSize=` | — | 分页 `{id,username,nickname,studentNo,phone,role,creditScore,violateCount,blacklistUntil,status,createTime}` |
 | PUT | `/api/v1/admin/users/{id}/status` | `{status}`（1正常 0禁用） | `null` |
 | PUT | `/api/v1/admin/users/{id}/credit` | `{score,reason}`（`score` 为调整后的目标分值） | `null` |
+| PUT | `/api/v1/admin/users/{id}/blacklist/clear` | — | `null`（解除该用户黑名单） |
+| GET | `/api/v1/admin/users/export` | — | CSV 文件（UTF-8 BOM；表头 `ID,用户名,昵称,学号/工号,手机号,信用分,违约次数,黑名单截止,状态,角色`） |
+| DELETE | `/api/v1/admin/users/{id}` | — | `null`（逻辑删除并脱敏用户名/学号；不能删除自己或管理员；存在未完成预约/进行中拼场/候补时返回 `code=30010` 并提示数量） |
 | GET | `/api/v1/credit/logs?pageNum=&pageSize=` | — | 分页 `{id,changeValue,afterScore,reason,bizType,bizId,createTime}` |
 
 ## 10. 错误码

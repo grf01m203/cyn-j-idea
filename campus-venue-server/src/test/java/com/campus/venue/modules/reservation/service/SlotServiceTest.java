@@ -35,7 +35,7 @@ class SlotServiceTest {
     @Test
     @DisplayName("按小时计价：40 元/小时 × 1.5 小时 = 60 元")
     void calcAmount() {
-        BigDecimal amount = new SlotService(null, null)
+        BigDecimal amount = new SlotService(null, null, null)
                 .calcAmount(new BigDecimal("40.00"), 30, 33);
         assertEquals(new BigDecimal("60.00"), amount);
     }
@@ -43,7 +43,7 @@ class SlotServiceTest {
     @Test
     @DisplayName("免费场地金额为 0.00")
     void calcAmountFree() {
-        BigDecimal amount = new SlotService(null, null)
+        BigDecimal amount = new SlotService(null, null, null)
                 .calcAmount(BigDecimal.ZERO, 16, 20);
         assertEquals(new BigDecimal("0.00"), amount);
     }
@@ -58,7 +58,7 @@ class SlotServiceTest {
     @Test
     @DisplayName("时段校验：结束槽位必须大于开始槽位")
     void invalidRange() {
-        SlotService service = new SlotService(null, null);
+        SlotService service = new SlotService(null, null, null);
         assertThrows(RuntimeException.class,
                 () -> service.validateAndPrice(1L, LocalDate.now(), 20, 20));
     }
