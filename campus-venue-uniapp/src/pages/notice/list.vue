@@ -264,6 +264,10 @@ onReachBottom(() => loadMore())
   padding: 24rpx;
   margin-bottom: 20rpx;
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  /* 统一卡片结构：纵向排列，底部信息自动贴底，保证每张卡片等高 */
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 .notice-card.unread {
   border-left: 6rpx solid #1677ff;
@@ -279,17 +283,33 @@ onReachBottom(() => loadMore())
   font-size: 30rpx;
   font-weight: 600;
   color: #1f2329;
-  max-width: 380rpx;
+  flex: 1;
+  min-width: 0;
+}
+/* 标题行：标题占满剩余宽度（超长省略），右侧类型标签固定不被挤压 */
+.notice-card .row-between > .row {
+  flex: 1;
+  min-width: 0;
+}
+.notice-card .tag {
+  flex-shrink: 0;
+  margin-left: 16rpx;
 }
 .notice-content {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
   font-size: 26rpx;
   color: #4e5969;
   line-height: 1.6;
   margin-top: 14rpx;
+  /* 固定保留两行高度：内容一行或多行时卡片高度都一致 */
+  min-height: 84rpx;
 }
 .notice-foot {
-  margin-top: 18rpx;
+  margin-top: auto;
   padding-top: 16rpx;
   border-top: 1rpx solid #f5f6f8;
 }
