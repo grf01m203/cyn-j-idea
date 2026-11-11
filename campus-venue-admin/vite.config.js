@@ -19,6 +19,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    // Vite 5.4.12+ 默认校验 Host 头，远程访问（内网穿透域名/局域网 IP）需显式放行
+    allowedHosts: ['.trycloudflare.com', 'localhost'],
     proxy: {
       // 契约：前端一律通过 Vite 代理 /api 访问 Spring Boot 后端，禁止硬编码域名
       '/api': {

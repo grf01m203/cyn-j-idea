@@ -40,6 +40,12 @@
         {{ loading ? '登录中…' : '登 录' }}
       </button>
 
+      <!-- v0.6.0 新增：注册入口 -->
+      <view class="reg-row" @click="goRegister">
+        <text class="text-muted">还没有账号？</text>
+        <text class="reg-link">立即注册</text>
+      </view>
+
       <view class="demo-box">
         <text class="text-muted">演示账号（点击快速填充）</text>
         <view class="demo-row">
@@ -67,6 +73,12 @@ function fill(u, p) {
   form.username = u
   form.password = p
   errorMsg.value = ''
+}
+
+/** 进入注册页（v0.6.0 新增） */
+function goRegister() {
+  if (loading.value) return
+  uni.navigateTo({ url: '/pages/register/index' })
 }
 
 async function onSubmit() {
@@ -138,6 +150,19 @@ async function onSubmit() {
 }
 .login-btn {
   margin-top: 40rpx;
+}
+.reg-row {
+  margin-top: 28rpx;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+}
+.reg-link {
+  font-size: 26rpx;
+  color: #1677ff;
+  margin-left: 6rpx;
+  font-weight: 600;
 }
 .demo-box {
   margin-top: 32rpx;

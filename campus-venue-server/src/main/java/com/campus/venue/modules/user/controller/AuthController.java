@@ -31,9 +31,23 @@ public class AuthController {
     public record AvatarDTO(@NotBlank(message = "头像地址不能为空") String url) {
     }
 
+    public record RegisterDTO(@NotBlank(message = "用户名不能为空") String username,
+                              @NotBlank(message = "密码不能为空") String password,
+                              @NotBlank(message = "昵称不能为空") String nickname,
+                              @NotBlank(message = "学号不能为空") String studentNo,
+                              String phone) {
+    }
+
     @PostMapping("/login")
     public R<AuthService.LoginVO> login(@Valid @RequestBody LoginDTO dto) {
         return R.ok(authService.login(dto.username(), dto.password()));
+    }
+
+    /** 学生自助注册（公开接口，注册成功后自动登录） */
+    @PostMapping("/register")
+    public R<AuthService.LoginVO> register(@Valid @RequestBody RegisterDTO dto) {
+        return R.ok(authService.register(dto.username(), dto.password(), dto.nickname(),
+                dto.studentNo(), dto.phone()));
     }
 
     @GetMapping("/me")

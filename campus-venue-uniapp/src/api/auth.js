@@ -9,6 +9,11 @@ export function login(data) {
   return http.post(`${API_PREFIX}/auth/login`, data, { auth: false, hideError: true })
 }
 
+/** POST /api/v1/auth/register {username,password,nickname,studentNo,phone} -> {token,user}（v0.6.0 新增） */
+export function register(data) {
+  return http.post(`${API_PREFIX}/auth/register`, data, { auth: false, hideError: true })
+}
+
 /** GET /api/v1/auth/me -> {id,username,nickname,studentNo,phone,role,creditScore,violateCount,blacklistUntil,status} */
 export function getMe() {
   return http.get(`${API_PREFIX}/auth/me`)

@@ -19,4 +19,9 @@ export function updateUserCredit (id, data) {
 /** GET /api/v1/credit/logs?pageNum=&pageSize= → 分页 */
 export function fetchCreditLogs (params) {
   return request.get('/credit/logs', { params })
+}
+
+/** DELETE /api/v1/admin/users/{id} —— 逻辑删除用户（v0.6.0 新增） */
+export function deleteUser (id) {
+  return request.delete(`/admin/users/${id}`)
 }

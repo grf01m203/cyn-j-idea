@@ -79,6 +79,14 @@
                 {{ Number(row.status) === 1 ? '禁用' : '启用' }}
               </el-button>
               <el-button link type="primary" @click="openCredit(row)">调整信用分</el-button>
+              <el-button
+                link
+                type="danger"
+                :disabled="!canDelete(row)"
+                @click="onDeleteUser(row)"
+              >
+                删除
+              </el-button>
             </template>
           </el-table-column>
         </data-table>
@@ -126,9 +134,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, RefreshLeft, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
-import { fetchUsers, updateUserStatus, updateUserCredit } from '@/api/user'
+import { fetchUsers, updateUserStatus, updateUserCredit, deleteUser } from '@/api/user'
 import { roleLabel, userStatusLabel, userStatusType } from '@/utils/format'
+import { useUserStore } from '@/store/user'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
@@ -237,6 +247,30 @@ async function onToggleStatus (row) {
     loadList()
   } catch (e) {
     // 请求层已提示
+  }
+}
+
+function canDelete (row) {
+  if (row.role && row.role !== 'STUDENT' && row.role !== 'USER') return false
+  return Number(row.id) !== Number(userStore.userId)
+}
+
+async function onDeleteUser (row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除用户「${row.nickname || row.username}」（学号 ${row.studentNo || '-'}）？删除后该账号无法登录，历史预约/通知保留。`,
+      '删除用户',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await deleteUser(row.id)
+    ElMessage.success('用户已删除')
+    loadList()
+  } catch (e) {
+    // 请求层已提示（如：存在未完成预约）
   }
 }
 

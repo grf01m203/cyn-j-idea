@@ -67,6 +67,23 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    /** 学生自助注册（成功后自动登录，逻辑与 login 一致） */
+    async register(payload) {
+      this.loading = true
+      try {
+        const data = await authApi.register(payload)
+        this.token = data.token
+        setToken(data.token)
+        this.persistUser(data.user)
+        startNoticeSocket()
+        const notice = useNoticeStore()
+        notice.refreshUnread()
+        return data
+      } finally {
+        this.loading = false
+      }
+    },
+
     /** 拉取个人资料 GET /auth/me */
     async fetchProfile() {
       const data = await authApi.getMe()

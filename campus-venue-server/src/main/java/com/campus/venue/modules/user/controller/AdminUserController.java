@@ -2,6 +2,7 @@ package com.campus.venue.modules.user.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.annotation.SaMode;
+import cn.dev33.satoken.stp.StpUtil;
 import com.campus.venue.common.result.PageResult;
 import com.campus.venue.common.result.R;
 import com.campus.venue.modules.credit.service.CreditService;
@@ -9,6 +10,7 @@ import com.campus.venue.modules.user.service.UserAdminService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -53,6 +55,13 @@ public class AdminUserController {
     @PutMapping("/{id}/credit")
     public R<Void> updateCredit(@PathVariable Long id, @Valid @RequestBody CreditDTO dto) {
         creditService.adjustTo(id, dto.score(), dto.reason());
+        return R.ok();
+    }
+
+    /** 删除用户（逻辑删除，仅学生账号；有未完成预约/拼场/候补时拒绝） */
+    @DeleteMapping("/{id}")
+    public R<Void> delete(@PathVariable Long id) {
+        userAdminService.deleteUser(StpUtil.getLoginIdAsLong(), id);
         return R.ok();
     }
 }
