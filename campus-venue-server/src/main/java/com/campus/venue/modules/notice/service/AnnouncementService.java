@@ -10,6 +10,7 @@ import com.campus.venue.common.result.ResultCode;
 import com.campus.venue.modules.notice.entity.Notification;
 import com.campus.venue.modules.notice.mapper.NotificationMapper;
 import com.campus.venue.modules.user.entity.SysUser;
+import com.campus.venue.modules.user.mapper.SysRoleMapper;
 import com.campus.venue.modules.user.mapper.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class AnnouncementService {
 
     private final NotificationMapper notificationMapper;
     private final SysUserMapper sysUserMapper;
+    private final SysRoleMapper sysRoleMapper;
     private final NoticeService noticeService;
 
     @Transactional(rollbackFor = Exception.class)
@@ -65,10 +67,13 @@ public class AnnouncementService {
         master.setReadTime(LocalDateTime.now());
         notificationMapper.insert(master);
 
-        // 个人通知副本：推送 + 落库，学生端消息中心立即可见
-        List<Long> userIds = sysUserMapper.selectList(Wrappers.<SysUser>lambdaQuery()
-                        .eq(SysUser::getStatus, Status.USER_ENABLED))
-                .stream().map(SysUser::getId).toList();
+        // 个人通知副本：只推送给学生（管理员不需要被业务公告刷屏），推送 + 落库
+        List<Long> studentIds = sysRoleMapper.selectUserIdsByRoleCode("STUDENT");
+        List<Long> userIds = studentIds.isEmpty() ? List.of()
+                : sysUserMapper.selectList(Wrappers.<SysUser>lambdaQuery()
+                                .in(SysUser::getId, studentIds)
+                                .eq(SysUser::getStatus, Status.USER_ENABLED))
+                          .stream().map(SysUser::getId).toList();
         noticeService.pushAll(userIds, NoticeTypes.ANNOUNCEMENT, safeTitle, safeContent, BIZ_TYPE, master.getId());
 
         Map<String, Object> map = toMap(master);

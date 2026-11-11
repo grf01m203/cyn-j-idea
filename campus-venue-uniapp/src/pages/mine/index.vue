@@ -7,13 +7,13 @@
         <view v-else class="avatar">{{ (profile.nickname || auth.nickname || 'U').slice(0, 1) }}</view>
         <text class="avatar-edit" :class="{ uploading }">{{ uploading ? '…' : '📷' }}</text>
       </view>
-      <view class="col flex-1">
-        <view class="row">
-          <text class="name">{{ profile.nickname || auth.nickname }}</text>
-          <text class="tag tag-blue role-tag">{{ roleText(profile.role) }}</text>
+      <view class="profile-info">
+        <view class="profile-name-row">
+          <text class="name">{{ profile.nickname || auth.nickname || '未命名用户' }}</text>
+          <text class="tag role-tag">{{ roleText(profile.role) }}</text>
         </view>
-        <text class="text-sm sub">{{ profile.username || '-' }} · {{ profile.studentNo || '未绑定学号' }}</text>
-        <text class="text-sm sub" v-if="profile.phone">📱 {{ profile.phone }}</text>
+        <text class="profile-meta">账号 {{ profile.username || '-' }} · 学号 {{ profile.studentNo || '未绑定' }}</text>
+        <text class="profile-meta" v-if="profile.phone">手机 {{ profile.phone }}</text>
       </view>
     </view>
 
@@ -56,7 +56,6 @@
           <view class="menu-item" v-for="m in menus" :key="m.url" @click="go(m.url)">
             <text class="menu-icon">{{ m.icon }}</text>
             <text class="menu-label">{{ m.label }}</text>
-            <text class="menu-arrow" v-if="m.badge">›</text>
             <view class="menu-badge" v-if="m.badge">
               <text class="menu-badge-text">{{ notice.unread > 99 ? '99+' : notice.unread }}</text>
             </view>
@@ -298,32 +297,41 @@ onReachBottom(() => loadMoreLogs())
 </script>
 
 <style scoped>
+/* H5 桌面宽度下限制内容宽度并居中，避免整页被拉伸变形 */
+.page {
+  max-width: 750px;
+  margin: 0 auto;
+  width: 100%;
+  background-color: #f5f6f8;
+}
 .profile {
   background: linear-gradient(135deg, #1677ff 0%, #4791ff 100%);
-  padding: 48rpx 32rpx 56rpx;
+  padding: 40rpx 32rpx 48rpx;
   display: flex;
   flex-direction: row;
   align-items: center;
 }
 .avatar-wrap {
   position: relative;
-  margin-right: 28rpx;
-  width: 120rpx;
-  height: 120rpx;
+  margin-right: 24rpx;
+  width: 112rpx;
+  height: 112rpx;
+  flex-shrink: 0;
 }
 .avatar-img {
-  width: 120rpx;
-  height: 120rpx;
+  display: block;
+  width: 112rpx;
+  height: 112rpx;
   border-radius: 50%;
   background-color: rgba(255, 255, 255, 0.25);
 }
 .avatar {
-  width: 120rpx;
-  height: 120rpx;
+  width: 112rpx;
+  height: 112rpx;
   border-radius: 50%;
   background-color: rgba(255, 255, 255, 0.25);
   color: #ffffff;
-  font-size: 48rpx;
+  font-size: 46rpx;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -345,43 +353,73 @@ onReachBottom(() => loadMoreLogs())
 .avatar-edit.uploading {
   color: #1677ff;
 }
+/* 昵称区：flex + min-width:0 保证长昵称只在自身区域内省略，不会顶歪右侧 */
+.profile-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.profile-name-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+}
 .name {
-  font-size: 38rpx;
+  font-size: 36rpx;
   font-weight: 700;
   color: #ffffff;
+  max-width: 62%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .role-tag {
-  margin-left: 16rpx;
+  margin-left: 14rpx;
+  flex-shrink: 0;
   background-color: rgba(255, 255, 255, 0.24);
   color: #ffffff;
 }
-.sub {
-  color: rgba(255, 255, 255, 0.88);
+.profile-meta {
+  display: block;
   margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.88);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+/* 信用三栏：等宽不换行，栏间用细分隔线 */
 .credit-row {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
-  margin-top: 16rpx;
+  align-items: stretch;
+  margin-top: 20rpx;
 }
 .credit-block {
   flex: 1;
-  min-width: 160rpx;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 12rpx;
+  justify-content: center;
+  padding: 0 8rpx;
+}
+.credit-block + .credit-block {
+  border-left: 1rpx solid #f2f3f5;
 }
 .credit-num {
   font-size: 46rpx;
   font-weight: 700;
+  line-height: 1.2;
   color: #1f2329;
   margin-bottom: 8rpx;
 }
 .credit-num.small {
-  font-size: 28rpx;
-  line-height: 58rpx;
+  font-size: 30rpx;
+  line-height: 1.6;
 }
 .warn-box {
   margin-top: 18rpx;
@@ -390,21 +428,23 @@ onReachBottom(() => loadMoreLogs())
   border-radius: 10rpx;
 }
 .menu-card {
-  padding: 0 24rpx;
+  padding: 0 28rpx;
 }
 .menu-item {
   display: flex;
   flex-direction: row;
   align-items: center;
-  height: 100rpx;
+  height: 96rpx;
   border-bottom: 1rpx solid #f5f6f8;
 }
 .menu-item:last-child {
   border-bottom: none;
 }
 .menu-icon {
+  width: 52rpx;
+  margin-right: 12rpx;
+  text-align: center;
   font-size: 34rpx;
-  margin-right: 20rpx;
 }
 .menu-label {
   flex: 1;
@@ -415,19 +455,20 @@ onReachBottom(() => loadMoreLogs())
   background-color: #ff4d4f;
   border-radius: 18rpx;
   padding: 2rpx 14rpx;
-  margin-right: 12rpx;
+  margin-right: 10rpx;
 }
 .menu-badge-text {
   color: #ffffff;
   font-size: 22rpx;
 }
 .menu-arrow {
+  flex-shrink: 0;
   font-size: 30rpx;
   color: #c9cdd4;
 }
 .card-title {
   display: block;
-  margin-bottom: 12rpx;
+  margin-bottom: 14rpx;
 }
 .log-item {
   display: flex;

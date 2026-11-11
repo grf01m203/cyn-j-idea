@@ -1,11 +1,13 @@
 package com.campus.venue.modules.reservation.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.campus.venue.common.constant.ConfigKeys;
 import com.campus.venue.common.constant.Status;
 import com.campus.venue.common.exception.BizException;
 import com.campus.venue.common.result.ResultCode;
 import com.campus.venue.modules.reservation.entity.ReservationSlot;
 import com.campus.venue.modules.reservation.mapper.ReservationSlotMapper;
+import com.campus.venue.modules.user.service.SysConfigService;
 import com.campus.venue.modules.venue.entity.VenueOpenRule;
 import com.campus.venue.modules.venue.mapper.VenueOpenRuleMapper;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,10 +35,16 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SlotService {
 
+    /**
+     * 基础网格：一个 slotNo 固定代表 30 分钟。
+     * 该常量与 reservation_slot 唯一索引（court_id, slot_date, slot_no）以及存量数据绑定，不可随意改动；
+     * 面向用户的「时段长度」由开放规则 slot_minutes 控制，必须为基础网格的整数倍（30/60/90/120）。
+     */
     public static final int SLOT_MINUTES = 30;
 
     private final ReservationSlotMapper slotMapper;
     private final VenueOpenRuleMapper openRuleMapper;
+    private final SysConfigService configService;
 
     /** 槽位号 -> 该槽位开始时间（slotNo=30 表示 15:00） */
     public static LocalTime slotStartTime(int slotNo) {
@@ -64,9 +73,34 @@ public class SlotService {
                 .eq(VenueOpenRule::getStatus, 1));
     }
 
+    /** 该场地当日生效的时段粒度（分钟）：取开放规则配置，未配置时回落到基础网格 30 分钟 */
+    public int slotMinutesOf(Long courtId, LocalDate date) {
+        for (VenueOpenRule rule : rulesOf(courtId, date)) {
+            if (rule.getSlotMinutes() != null && rule.getSlotMinutes() > 0) {
+                return rule.getSlotMinutes();
+            }
+        }
+        return SLOT_MINUTES;
+    }
+
+    /** 时段粒度相当于几个基础网格（30 分钟） */
+    private int stepOf(int slotMinutes) {
+        return Math.max(1, slotMinutes / SLOT_MINUTES);
+    }
+
+    /** 时段标签：按实际时段长度展示（如 08:00-09:00） */
+    public static String labelOf(int slotNo, int slotMinutes) {
+        LocalTime start = LocalTime.MIDNIGHT.plusMinutes((long) slotNo * SLOT_MINUTES);
+        LocalTime end = start.plusMinutes(slotMinutes);
+        String endText = end.equals(LocalTime.MIDNIGHT)
+                ? "24:00"
+                : String.format("%02d:%02d", end.getHour(), end.getMinute());
+        return String.format("%02d:%02d-%s", start.getHour(), start.getMinute(), endText);
+    }
+
     /**
      * 校验预约时段是否满足开放规则，并返回按小时计价的价格。
-     * 同时拦截“过去的日期/已过去的时段”，避免产生开始时间早于当前时刻的预约。
+     * 同时拦截「过去的日期/已过去的时段」「超出最多提前预约天数」「不按配置粒度对齐」的请求。
      */
     public BigDecimal validateAndPrice(Long courtId, LocalDate date, int startSlot, int endSlot) {
         if (startSlot < 0 || endSlot <= startSlot || endSlot > 48) {
@@ -75,6 +109,12 @@ public class SlotService {
         LocalDate today = LocalDate.now();
         if (date.isBefore(today)) {
             throw new BizException(ResultCode.RESERVE_LIMIT, "不能预约过去的日期");
+        }
+        // 最多提前 N 天预约（系统参数 reservation.max.advance.days，默认 7 天）
+        int maxAdvanceDays = configService.getInt(ConfigKeys.RESERVATION_MAX_ADVANCE_DAYS, 7);
+        if (maxAdvanceDays > 0 && date.isAfter(today.plusDays(maxAdvanceDays))) {
+            throw new BizException(ResultCode.RESERVE_LIMIT,
+                    "最多只能提前 " + maxAdvanceDays + " 天预约");
         }
         if (date.equals(today) && !toDateTime(date, startSlot).isAfter(LocalDateTime.now())) {
             throw new BizException(ResultCode.RESERVE_LIMIT, "不能预约已过去的时段");
@@ -89,6 +129,13 @@ public class SlotService {
                 .filter(r -> !start.isBefore(r.getStartTime()) && !end.isAfter(r.getEndTime()))
                 .findFirst()
                 .orElseThrow(() -> new BizException(ResultCode.RESERVE_LIMIT, "所选时段超出开放时间"));
+        // 时段长度由开放规则配置，预约必须按该粒度对齐（如 60 分钟粒度只能选 08:00-09:00）
+        int slotMinutes = matched.getSlotMinutes() == null ? SLOT_MINUTES : matched.getSlotMinutes();
+        int step = stepOf(slotMinutes);
+        if (startSlot % step != 0 || (endSlot - startSlot) % step != 0) {
+            throw new BizException(ResultCode.RESERVE_LIMIT,
+                    "该场地时段长度为 " + slotMinutes + " 分钟，请按该粒度选择时间段");
+        }
         int maxDuration = matched.getMaxDuration() == null ? 240 : matched.getMaxDuration();
         if ((endSlot - startSlot) * SLOT_MINUTES > maxDuration) {
             throw new BizException(ResultCode.RESERVE_LIMIT, "单次预约时长不能超过 " + maxDuration + " 分钟");
@@ -147,25 +194,40 @@ public class SlotService {
         return true;
     }
 
-    /** 当日 30 分钟粒度时段视图：0 空闲 / 1 已占用 / 2 不可用 / 3 已过期 */
+    /**
+     * 当日时段视图：按开放规则配置的时段粒度（slot_minutes）输出。
+     * 0 空闲 / 1 已占用 / 2 不可用 / 3 已过期
+     */
     public List<Map<String, Object>> daySlots(Long courtId, LocalDate date) {
-        Set<Integer> free = new HashSet<>();
-        for (VenueOpenRule rule : rulesOf(courtId, date)) {
-            int start = (int) (rule.getStartTime().toSecondOfDay() / 60 / SLOT_MINUTES);
-            int end = (int) Math.ceil(rule.getEndTime().toSecondOfDay() / 60.0 / SLOT_MINUTES);
-            for (int slotNo = start; slotNo < end; slotNo++) {
-                free.add(slotNo);
-            }
-        }
+        List<VenueOpenRule> rules = rulesOf(courtId, date);
         Set<Integer> occupied = occupiedSlots(courtId, date);
         LocalDateTime now = LocalDateTime.now();
         boolean isToday = date.equals(LocalDate.now());
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (int slotNo = 0; slotNo < 48; slotNo++) {
+
+        // 可预约时段（slotNo -> 该时段长度分钟数），slotNo 仍以 30 分钟基础网格表示
+        Map<Integer, Integer> bookable = new LinkedHashMap<>();
+        for (VenueOpenRule rule : rules) {
+            int slotMinutes = rule.getSlotMinutes() == null ? SLOT_MINUTES : rule.getSlotMinutes();
+            if (slotMinutes < SLOT_MINUTES) {
+                continue;
+            }
+            int ruleStartMin = rule.getStartTime().getHour() * 60 + rule.getStartTime().getMinute();
+            int ruleEndMin = rule.getEndTime().getHour() * 60 + rule.getEndTime().getMinute();
+            int alignedStart = ((ruleStartMin + slotMinutes - 1) / slotMinutes) * slotMinutes;
+            for (int min = alignedStart; min + slotMinutes <= ruleEndMin; min += slotMinutes) {
+                if (min % SLOT_MINUTES != 0) {
+                    continue;
+                }
+                bookable.putIfAbsent(min / SLOT_MINUTES, slotMinutes);
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>(bookable.size());
+        for (Map.Entry<Integer, Integer> entry : bookable.entrySet()) {
+            int slotNo = entry.getKey();
+            int slotMinutes = entry.getValue();
             int status;
-            if (!free.contains(slotNo)) {
-                status = Status.SLOT_UNAVAILABLE;
-            } else if (occupied.contains(slotNo)) {
+            if (occupied.contains(slotNo)) {
                 status = Status.SLOT_OCCUPIED;
             } else if (isToday && !toDateTime(date, slotNo).isAfter(now)) {
                 // 今天已经过去的时段不可再预约，前端按“已过期”渲染
@@ -173,9 +235,10 @@ public class SlotService {
             } else {
                 status = Status.SLOT_FREE;
             }
-            Map<String, Object> item = new HashMap<>(4);
+            Map<String, Object> item = new HashMap<>(5);
             item.put("slotNo", slotNo);
-            item.put("label", label(slotNo));
+            item.put("slotMinutes", slotMinutes);
+            item.put("label", labelOf(slotNo, slotMinutes));
             item.put("status", status);
             result.add(item);
         }

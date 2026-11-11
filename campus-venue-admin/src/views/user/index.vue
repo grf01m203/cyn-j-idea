@@ -25,7 +25,10 @@
 
         <div class="table-toolbar">
           <span class="text-muted">共 {{ total }} 个用户</span>
-          <el-button :icon="Refresh" @click="loadList">刷新</el-button>
+          <div>
+            <el-button :icon="Download" :loading="exporting" @click="onExport">导出 CSV</el-button>
+            <el-button :icon="Refresh" @click="loadList">刷新</el-button>
+          </div>
         </div>
 
         <data-table
@@ -69,7 +72,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="createTime" label="注册时间" width="170" show-overflow-tooltip />
-          <el-table-column label="操作" width="190" fixed="right">
+          <el-table-column label="操作" width="320" fixed="right">
             <template #default="{ row }">
               <el-button
                 link
@@ -79,6 +82,14 @@
                 {{ Number(row.status) === 1 ? '禁用' : '启用' }}
               </el-button>
               <el-button link type="primary" @click="openCredit(row)">调整信用分</el-button>
+              <el-button
+                v-if="isBlacklisted(row.blacklistUntil)"
+                link
+                type="success"
+                @click="onClearBlacklist(row)"
+              >
+                解除黑名单
+              </el-button>
               <el-button
                 link
                 type="danger"
@@ -131,10 +142,10 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, RefreshLeft, Search } from '@element-plus/icons-vue'
+import { Download, Refresh, RefreshLeft, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
-import { fetchUsers, updateUserStatus, updateUserCredit, deleteUser } from '@/api/user'
+import { clearUserBlacklist, deleteUser, exportUsers, fetchUsers, updateUserStatus, updateUserCredit } from '@/api/user'
 import { roleLabel, userStatusLabel, userStatusType } from '@/utils/format'
 import { useUserStore } from '@/store/user'
 
@@ -143,6 +154,7 @@ const loading = ref(false)
 const list = ref([])
 const total = ref(0)
 const query = reactive({ keyword: '', pageNum: 1, pageSize: 10 })
+const exporting = ref(false)
 
 const creditVisible = ref(false)
 const creditSubmitting = ref(false)
@@ -198,6 +210,47 @@ function isBlacklisted (value) {
   const t = new Date(String(value).replace(' ', 'T'))
   if (Number.isNaN(t.getTime())) return true
   return t.getTime() > Date.now()
+}
+
+/** 导出用户列表为 CSV（后端返回带 BOM 的 UTF-8 文件流，Excel 可直接打开） */
+async function onExport () {
+  exporting.value = true
+  try {
+    const blob = await exportUsers(query.keyword || undefined)
+    const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `用户列表_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    // 请求层已提示
+  } finally {
+    exporting.value = false
+  }
+}
+
+/** 解除黑名单（违约次数一并清零），解决“分已恢复但仍禁约”的问题 */
+async function onClearBlacklist (row) {
+  try {
+    await ElMessageBox.confirm(
+      `确定解除「${row.nickname || row.username}」的黑名单吗？违约次数会一并清零。`,
+      '解除黑名单',
+      { type: 'warning', confirmButtonText: '解除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  try {
+    await clearUserBlacklist(row.id)
+    ElMessage.success('已解除黑名单')
+    loadList()
+  } catch (e) {
+    // 请求层已提示
+  }
 }
 
 async function loadList () {

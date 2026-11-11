@@ -253,8 +253,11 @@ public class VenueService {
                 throw new BizException(ResultCode.PARAM_ERROR, "开放时间不合法（第 " + weekday + " 天）");
             }
             int slotMinutes = dto.slotMinutes() == null ? SlotService.SLOT_MINUTES : dto.slotMinutes();
-            if (slotMinutes < 15 || slotMinutes > 120) {
-                throw new BizException(ResultCode.PARAM_ERROR, "时段长度必须在 15~120 分钟之间（第 " + weekday + " 天）");
+            // 时段长度以 30 分钟为基础网格，必须是其整数倍（30/60/90/120）
+            if (slotMinutes < SlotService.SLOT_MINUTES || slotMinutes > 120
+                    || slotMinutes % SlotService.SLOT_MINUTES != 0) {
+                throw new BizException(ResultCode.PARAM_ERROR,
+                        "时段长度必须为 30/60/90/120 分钟（第 " + weekday + " 天）");
             }
             int maxDuration = dto.maxDuration() == null ? 240 : dto.maxDuration();
             if (maxDuration <= 0 || maxDuration > 24 * 60) {
@@ -271,6 +274,11 @@ public class VenueService {
             rule.setPrice(price);
             rule.setStatus(1);
             parsed.add(rule);
+        }
+        // 同一场地必须使用统一的时段长度，否则 slotNo 对应的真实时长会产生歧义
+        int firstSlotMinutes = parsed.get(0).getSlotMinutes();
+        if (parsed.stream().anyMatch(r -> !Integer.valueOf(firstSlotMinutes).equals(r.getSlotMinutes()))) {
+            throw new BizException(ResultCode.PARAM_ERROR, "同一场地的所有开放规则必须使用相同的时段长度");
         }
         assertNoOverlap(parsed);
         openRuleMapper.delete(Wrappers.<VenueOpenRule>lambdaQuery().eq(VenueOpenRule::getCourtId, courtId));

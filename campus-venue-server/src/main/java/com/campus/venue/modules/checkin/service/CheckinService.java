@@ -194,12 +194,22 @@ public class CheckinService {
 
         attempts.remove(limitKey);
         usedCodes.put(normalized, System.currentTimeMillis());
-        Map<String, Object> map = new HashMap<>(5);
+        // 现场核销台需要展示预约人、场地与时间，核销成功后一并返回
+        VenueCourt court = venueCourtMapper.selectById(resv.getCourtId());
+        SysUser owner = sysUserMapper.selectById(resv.getUserId());
+        Map<String, Object> map = new HashMap<>(10);
         map.put("reservationId", resv.getId());
         map.put("resvNo", resv.getResvNo());
         map.put("status", resv.getStatus());
         map.put("checkinTime", record.getCheckinTime());
         map.put("operatorId", operatorId);
+        map.put("userId", resv.getUserId());
+        map.put("userName", owner == null ? null
+                : StringUtils.hasText(owner.getNickname()) ? owner.getNickname() : owner.getUsername());
+        map.put("studentNo", owner == null ? null : owner.getStudentNo());
+        map.put("courtName", court == null ? null : court.getName());
+        map.put("startTime", resv.getStartTime());
+        map.put("endTime", resv.getEndTime());
         return map;
     }
 

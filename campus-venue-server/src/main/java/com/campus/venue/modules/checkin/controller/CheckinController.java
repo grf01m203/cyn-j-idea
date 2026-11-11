@@ -1,5 +1,7 @@
 package com.campus.venue.modules.checkin.controller;
 
+import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaMode;
 import cn.dev33.satoken.stp.StpUtil;
 import com.campus.venue.common.result.R;
 import com.campus.venue.modules.checkin.service.CheckinService;
@@ -32,12 +34,19 @@ public class CheckinController {
         return R.ok(checkinService.code(StpUtil.getLoginIdAsLong(), dto.reservationId()));
     }
 
+    /**
+     * 现场核销：仅场馆管理员/系统管理员可调用（学生只能生成自己的签到码）。
+     * 任何登录用户都能核销会绕过签到码的归属校验，等同把核销权开放给全体用户。
+     */
     @PostMapping("/scan")
+    @SaCheckRole(value = {"VENUE_ADMIN", "SYS_ADMIN"}, mode = SaMode.OR)
     public R<Map<String, Object>> scan(@Valid @RequestBody CheckinService.ScanDTO dto, HttpServletRequest request) {
         return R.ok(checkinService.scan(StpUtil.getLoginIdAsLong(), dto.code(), clientIp(request)));
     }
 
+    /** 签到记录查询：仅管理端使用，含全部用户数据，需管理员权限 */
     @GetMapping("/records")
+    @SaCheckRole(value = {"VENUE_ADMIN", "SYS_ADMIN"}, mode = SaMode.OR)
     public R<List<Map<String, Object>>> records(@RequestParam(required = false) Long reservationId) {
         return R.ok(checkinService.records(reservationId));
     }

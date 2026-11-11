@@ -17,4 +17,12 @@ public interface SysRoleMapper extends BaseMapper<SysRole> {
             WHERE ur.user_id = #{userId}
             """)
     List<String> selectRoleCodesByUserId(@Param("userId") Long userId);
+
+    /** 查询拥有指定角色的用户 ID 列表（用于公告只推送给学生等场景） */
+    @Select("""
+            SELECT ur.user_id FROM sys_user_role ur
+            JOIN sys_role r ON r.id = ur.role_id
+            WHERE r.role_code = #{roleCode}
+            """)
+    List<Long> selectUserIdsByRoleCode(@Param("roleCode") String roleCode);
 }
