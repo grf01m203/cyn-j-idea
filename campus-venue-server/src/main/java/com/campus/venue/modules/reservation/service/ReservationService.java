@@ -50,6 +50,7 @@ import java.util.stream.Collectors;
 public class ReservationService {
 
     private static final DateTimeFormatter NO_FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     private final ReservationMapper reservationMapper;
     private final ReservationMemberMapper reservationMemberMapper;
@@ -309,6 +310,37 @@ public class ReservationService {
     }
 
     // ------------------------------------------------------------ 定时处理 ----
+
+    /**
+     * 预约开始前提醒：开始前 N 分钟推送 RESV_REMIND（默认 30 分钟，参数 reservation.remind.minutes）。
+     * 同一预约只推一次——用通知表按 (userId, type, bizType, bizId) 去重，重启/多轮扫描不会重复打扰。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int remindUpcoming() {
+        int minutes = configService.getInt(ConfigKeys.RESERVATION_REMIND_MINUTES, 30);
+        if (minutes <= 0) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime to = now.plusMinutes(minutes);
+        List<Reservation> list = reservationMapper.selectList(Wrappers.<Reservation>lambdaQuery()
+                .eq(Reservation::getStatus, Status.RESV_CONFIRMED)
+                .gt(Reservation::getStartTime, now)
+                .le(Reservation::getStartTime, to)
+                .last("limit 200"));
+        int count = 0;
+        for (Reservation resv : list) {
+            if (noticeService.exists(resv.getUserId(), NoticeTypes.RESV_REMIND, "RESERVATION", resv.getId())) {
+                continue;
+            }
+            noticeService.push(resv.getUserId(), NoticeTypes.RESV_REMIND, "预约即将开始",
+                    String.format("你的预约 %s 将于今天 %s 开始，请提前到场签到",
+                            resv.getResvNo(), resv.getStartTime().format(TIME_FMT)),
+                    "RESERVATION", resv.getId());
+            count++;
+        }
+        return count;
+    }
 
     /** 开始后 15 分钟仍未签到 -> 未签到，释放槽位，扣分 */
     @Transactional(rollbackFor = Exception.class)

@@ -24,14 +24,15 @@ public class ScheduledTasks {
     @Scheduled(fixedDelay = 60_000L, initialDelay = 30_000L)
     public void tick() {
         try {
+            int reminded = reservationService.remindUpcoming();
             int noShow = reservationService.markNoShow();
             int expired = reservationService.expireUnpaid();
             int finished = reservationService.finishEnded();
             int queueExpired = queueService.expireTimeout();
             int teamDissolved = teamService.autoDissolveExpired();
-            if (noShow + expired + finished + queueExpired + teamDissolved > 0) {
-                log.info("定时任务处理完成：未签到={}, 待支付过期={}, 完成加分={}, 候补超时={}, 拼场解散={}",
-                        noShow, expired, finished, queueExpired, teamDissolved);
+            if (reminded + noShow + expired + finished + queueExpired + teamDissolved > 0) {
+                log.info("定时任务处理完成：开始前提醒={}, 未签到={}, 待支付过期={}, 完成加分={}, 候补超时={}, 拼场解散={}",
+                        reminded, noShow, expired, finished, queueExpired, teamDissolved);
             }
         } catch (Exception e) {
             log.error("定时任务执行失败", e);

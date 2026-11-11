@@ -6,6 +6,7 @@ import com.campus.venue.common.result.PageResult;
 import com.campus.venue.common.result.R;
 import com.campus.venue.modules.credit.service.CreditService;
 import com.campus.venue.modules.user.service.UserAdminService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Map;
 
 /**
@@ -54,5 +57,43 @@ public class AdminUserController {
     public R<Void> updateCredit(@PathVariable Long id, @Valid @RequestBody CreditDTO dto) {
         creditService.adjustTo(id, dto.score(), dto.reason());
         return R.ok();
+    }
+
+    /** 解除黑名单（同时清零违约次数） */
+    @PutMapping("/{id}/blacklist/clear")
+    public R<Void> clearBlacklist(@PathVariable Long id) {
+        creditService.clearBlacklist(id);
+        return R.ok();
+    }
+
+    /**
+     * 导出用户列表（CSV，带 BOM 便于 Excel 直接打开）。
+     * 显式声明 /export 路径；即使后续新增 /{id} 通配映射也不会被吞掉。
+     */
+    @GetMapping("/export")
+    public void export(@RequestParam(required = false) String keyword,
+                       HttpServletResponse response) throws IOException {
+        PageResult<Map<String, Object>> page = userAdminService.page(keyword, 1, 10000);
+        response.setContentType("text/csv;charset=UTF-8");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Content-Disposition", "attachment;filename=\"campus-venue-users.csv\"");
+        PrintWriter writer = response.getWriter();
+        writer.write('\uFEFF');
+        writer.println("ID,用户名,昵称,学号/工号,手机号,信用分,违约次数,黑名单截止,状态,角色");
+        for (Map<String, Object> u : page.getRecords()) {
+            writer.println(String.join(",",
+                    csv(u.get("id")), csv(u.get("username")), csv(u.get("nickname")),
+                    csv(u.get("studentNo")), csv(u.get("phone")), csv(u.get("creditScore")),
+                    csv(u.get("violateCount")), csv(u.get("blacklistUntil")),
+                    csv(u.get("status")), csv(u.get("role"))));
+        }
+        writer.flush();
+    }
+
+    private static String csv(Object value) {
+        if (value == null) {
+            return "\"\"";
+        }
+        return "\"" + String.valueOf(value).replace("\"", "\"\"") + "\"";
     }
 }

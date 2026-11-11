@@ -7,6 +7,41 @@
     />
 
     <div class="page-container">
+      <!-- 现场核销台：管理员输入学生出示的 6 位签到码完成核销 -->
+      <el-card shadow="never" class="mb-8">
+        <template #header>
+          <div class="card-header">
+            <span>现场核销台</span>
+            <el-tag size="small" type="success">管理员专用</el-tag>
+          </div>
+        </template>
+        <div class="search-bar">
+          <el-input
+            v-model="scanCode"
+            placeholder="输入学生出示的 6 位签到码"
+            clearable
+            maxlength="6"
+            style="width: 260px"
+            @keyup.enter="onScan"
+          >
+            <template #prefix><el-icon><Key /></el-icon></template>
+          </el-input>
+          <el-button type="success" :icon="CircleCheck" :loading="scanning" @click="onScan">核销</el-button>
+          <span class="text-muted">核销成功会显示预约人、场地与时间段；签到码 60 秒内有效且只能用一次</span>
+        </div>
+
+        <el-descriptions v-if="scanResult" :column="3" border class="mt-8">
+          <el-descriptions-item label="预约单号">{{ scanResult.resvNo }}</el-descriptions-item>
+          <el-descriptions-item label="预约人">{{ scanResult.userName || scanResult.userId }}</el-descriptions-item>
+          <el-descriptions-item label="学号/工号">{{ scanResult.studentNo || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="场地">{{ scanResult.courtName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="预约时段">
+            {{ scanResult.startTime }} ~ {{ scanResult.endTime }}
+          </el-descriptions-item>
+          <el-descriptions-item label="核销时间">{{ scanResult.checkinTime }}</el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
       <el-card shadow="never">
         <div class="search-bar">
           <el-input
@@ -72,9 +107,9 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, RefreshLeft, Search, Tickets } from '@element-plus/icons-vue'
+import { CircleCheck, Key, Refresh, RefreshLeft, Search, Tickets } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { fetchCheckinRecords } from '@/api/checkin'
+import { fetchCheckinRecords, scanCheckin } from '@/api/checkin'
 import { fetchAdminReservations } from '@/api/reservation'
 
 const route = useRoute()
@@ -83,6 +118,35 @@ const reservationId = ref('')
 const resvNo = ref('')
 const loading = ref(false)
 const list = ref([])
+
+// ---- 现场核销台 ----
+const scanCode = ref('')
+const scanning = ref(false)
+const scanResult = ref(null)
+
+/** 管理员输入 6 位签到码核销（POST /api/v1/checkin/scan） */
+async function onScan () {
+  const code = String(scanCode.value || '').trim()
+  if (!/^\d{6}$/.test(code)) {
+    ElMessage.warning('签到码为 6 位数字，请检查后重新输入')
+    return
+  }
+  scanning.value = true
+  try {
+    const data = await scanCheckin(code)
+    scanResult.value = data || null
+    ElMessage.success('核销成功')
+    scanCode.value = ''
+    // 若当前列表正好在查这笔预约，顺手刷新记录
+    if (data && String(data.reservationId) === String(reservationId.value)) {
+      loadRecords()
+    }
+  } catch (e) {
+    // 请求层已提示（签到码过期/已使用/不在窗口等）
+  } finally {
+    scanning.value = false
+  }
+}
 
 const CHANNEL_LABELS = {
   QRCODE: '扫码签到',

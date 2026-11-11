@@ -71,7 +71,11 @@ public class CreditService {
         return after;
     }
 
-    /** 管理端：把分值调整为指定值 */
+    /**
+     * 管理端：把分值调整为指定值。
+     * 若调整后的分值已达到可预约阈值，则一并解除黑名单并清零违约次数，
+     * 避免「分已恢复但用户仍被禁约」的割裂状态。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void adjustTo(Long userId, int targetScore, String reason) {
         if (targetScore < 0 || targetScore > MAX_SCORE) {
@@ -83,6 +87,29 @@ public class CreditService {
         }
         int current = user.getCreditScore() == null ? MAX_SCORE : user.getCreditScore();
         change(userId, targetScore - current, reason == null ? "管理员调整" : reason, "ADMIN", null);
+        int minReserve = configService.getInt(ConfigKeys.CREDIT_MIN_RESERVE, 60);
+        if (targetScore >= minReserve) {
+            clearBlacklist(userId);
+        }
+    }
+
+    /** 管理端：解除黑名单，同时清零违约次数，便于用户重新开始 */
+    @Transactional(rollbackFor = Exception.class)
+    public void clearBlacklist(Long userId) {
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user == null) {
+            throw new BizException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        boolean hasBlacklist = user.getBlacklistUntil() != null;
+        boolean hasViolate = user.getViolateCount() != null && user.getViolateCount() > 0;
+        if (!hasBlacklist && !hasViolate) {
+            return;
+        }
+        user.setBlacklistUntil(null);
+        user.setViolateCount(0);
+        sysUserMapper.updateById(user);
+        noticeService.push(userId, NoticeTypes.CREDIT_CHANGED, "黑名单已解除",
+                "管理员已解除你的预约限制，现在可以正常预约了", "CREDIT", null);
     }
 
     /** 是否处于黑名单 */

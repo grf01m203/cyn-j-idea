@@ -98,6 +98,15 @@ public class NoticeService {
                 .eq(Notification::getReadFlag, 0));
     }
 
+    /** 同一业务是否已推送过指定类型的消息（定时任务去重用，避免重复提醒） */
+    public boolean exists(Long userId, String type, String bizType, Long bizId) {
+        return notificationMapper.selectCount(Wrappers.<Notification>lambdaQuery()
+                .eq(Notification::getUserId, userId)
+                .eq(Notification::getType, type)
+                .eq(Notification::getBizType, bizType)
+                .eq(Notification::getBizId, bizId)) > 0;
+    }
+
     private Map<String, Object> toMap(Notification n) {
         Map<String, Object> map = new HashMap<>(10);
         map.put("id", n.getId());

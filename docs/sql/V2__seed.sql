@@ -18,13 +18,15 @@ ON DUPLICATE KEY UPDATE role_name = VALUES(role_name), remark = VALUES(remark);
 INSERT INTO sys_config (config_key, config_value, remark) VALUES
  ('credit.init.score',        '100', '信用分初始分'),
  ('credit.min.reserve',       '60',  '低于该分数不允许预约'),
- ('credit.violate.deduct',    '5',   '未签到违约扣分'),
- ('credit.finish.add',        '1',   '正常履约加分'),
- ('credit.late.cancel.deduct','3',   '开始前2小时内取消扣分'),
+ ('credit.violate.deduct',    '3',   '未签到违约扣分'),
+ ('credit.finish.add',        '2',   '正常履约加分'),
+ ('credit.late.cancel.deduct','3',   '免费取消时限内取消扣分'),
  ('credit.quit.deduct',       '3',   '成团后退出扣分'),
- ('credit.blacklist.count',   '3',   '连续违约次数上限，达到即拉黑'),
- ('credit.blacklist.days',    '7',   '黑名单天数'),
- ('reservation.cancel.free.hours', '2', '免费取消时限(小时)'),
+ ('credit.blacklist.count',   '4',   '连续违约次数上限，达到即拉黑'),
+ ('credit.blacklist.days',    '3',   '黑名单天数'),
+ ('reservation.cancel.free.hours', '4', '免费取消时限(小时)'),
+ ('reservation.max.advance.days',  '7', '最多可提前预约的天数'),
+ ('reservation.remind.minutes',    '30', '预约开始前提醒提前量(分钟)，0 表示关闭'),
  ('checkin.window.minutes',   '15',  '签到时间窗(开始前后各N分钟)'),
  ('queue.hold.minutes',       '10',  '候补递补确认时限(分钟)')
 ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), remark = VALUES(remark);

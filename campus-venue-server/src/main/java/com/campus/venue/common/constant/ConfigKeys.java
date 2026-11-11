@@ -17,6 +17,8 @@ public final class ConfigKeys {
     public static final String CREDIT_BLACKLIST_COUNT = "credit.blacklist.count";
     public static final String CREDIT_BLACKLIST_DAYS = "credit.blacklist.days";
     public static final String RESERVATION_CANCEL_FREE_HOURS = "reservation.cancel.free.hours";
+    public static final String RESERVATION_MAX_ADVANCE_DAYS = "reservation.max.advance.days";
+    public static final String RESERVATION_REMIND_MINUTES = "reservation.remind.minutes";
     public static final String CHECKIN_WINDOW_MINUTES = "checkin.window.minutes";
     public static final String CHECKIN_MAX_FAIL = "checkin.max.fail";
     public static final String CHECKIN_LOCK_MINUTES = "checkin.lock.minutes";
