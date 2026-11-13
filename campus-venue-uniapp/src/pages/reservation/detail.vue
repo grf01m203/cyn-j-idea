@@ -37,7 +37,10 @@
           </view>
           <view class="kv"><text class="kv-k">来源</text><text class="kv-v">{{ sourceText(detail.source) }}</text></view>
           <view class="kv" v-if="detail.teamId"><text class="kv-k">拼场 ID</text><text class="kv-v">{{ detail.teamId }}</text></view>
-          <view class="kv" v-if="detail.remark"><text class="kv-k">备注</text><text class="kv-v">{{ detail.remark }}</text></view>
+          <view class="kv kv-col-item" v-if="detail.remark">
+            <text class="kv-k">备注</text>
+            <text class="kv-v kv-v-block">{{ detail.remark }}</text>
+          </view>
           <view class="kv" v-if="detail.createTime"><text class="kv-k">创建时间</text><text class="kv-v">{{ formatDateTime(detail.createTime) }}</text></view>
         </view>
 
@@ -254,6 +257,11 @@ onLoad((options) => {
   background: linear-gradient(135deg, #1677ff 0%, #4791ff 100%);
 }
 .hero-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
   font-size: 36rpx;
   font-weight: 700;
   color: #ffffff;
@@ -308,11 +316,32 @@ onLoad((options) => {
   font-size: 26rpx;
   color: #8a9099;
 }
+/* 值列：flex 收缩 + 单行省略（行内 text 上 max-width 不生效，只能靠 flex 约束） */
 .kv-v {
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
   font-size: 26rpx;
   color: #1f2329;
-  max-width: 420rpx;
   text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* 备注这类长文本：标签在上、内容在下换行展示，不截断信息 */
+.kv-col-item {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.kv-v-block {
+  flex: none;
+  width: 100%;
+  margin-left: 0;
+  margin-top: 8rpx;
+  text-align: left;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.6;
 }
 .empty-inline {
   padding: 20rpx 0;
@@ -344,8 +373,15 @@ onLoad((options) => {
   margin-right: 20rpx;
 }
 .member-name {
+  display: block;
   font-size: 28rpx;
   color: #1f2329;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.member-item .flex-1 {
+  min-width: 0;
 }
 .bottom-bar {
   position: fixed;
@@ -361,7 +397,11 @@ onLoad((options) => {
 }
 .bar-btn {
   flex: 1;
+  min-width: 0;
   margin-left: 12rpx;
+  padding: 0 12rpx;
+  font-size: 26rpx;
+  white-space: nowrap;
 }
 .bar-btn:first-child {
   margin-left: 0;
