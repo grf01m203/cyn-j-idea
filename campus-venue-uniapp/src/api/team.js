@@ -36,9 +36,22 @@ export function quitTeam(id) {
   return http.post(`${API_PREFIX}/teams/${id}/quit`, {})
 }
 
-/** POST /api/v1/teams/{id}/confirm -> {reservationId} */
+/**
+ * POST /api/v1/teams/{id}/confirm（队长确认成团）
+ * -> {reservationId,resvNo,status,needPay,amount,memberCount,shareAmount}
+ * 免费场地 status=2、needPay=false；收费场地 status=4、needPay=true
+ */
 export function confirmTeam(id) {
   return http.post(`${API_PREFIX}/teams/${id}/confirm`, {})
+}
+
+/**
+ * POST /api/v1/teams/{id}/pay（当前登录成员支付自己的份额，模拟支付）
+ * -> {teamId,paid,paidCount,memberCount,allPaid,amount,shareAmount,status,reservationId,message}
+ * 全部付齐 status=2/allPaid=true；被抢先 status=5 且 message 有值（非错误响应）
+ */
+export function payTeamShare(id) {
+  return http.post(`${API_PREFIX}/teams/${id}/pay`, {})
 }
 
 /** POST /api/v1/teams/{id}/dissolve -> null */

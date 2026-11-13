@@ -101,7 +101,9 @@ export const TEAM_STATUS = {
   0: { label: '招募中', type: 'warning' },
   1: { label: '人数已满', type: 'primary' },
   2: { label: '已成团', type: 'success' },
-  3: { label: '已解散', type: 'info' }
+  3: { label: '已解散', type: 'info' },
+  4: { label: '待付齐', type: 'warning' },
+  5: { label: '已失效', type: 'danger' }
 }
 
 export function teamStatusLabel (status) {

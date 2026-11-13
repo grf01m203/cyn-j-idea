@@ -99,11 +99,18 @@ public class QueueService {
                     .eq(WaitingQueue::getStatus, Status.QUEUE_WAITING)
                     .lt(WaitingQueue::getId, q.getId()));
             map.put("position", ahead + 1);
+            // 已生成待支付预约的候补：前端据此显示「去支付」
+            map.put("reservationId", q.getReservationId());
+            map.put("canPay", q.getReservationId() != null && q.getStatus() == Status.QUEUE_CONFIRMED);
             result.add(map);
         }
         return result;
     }
 
+    /**
+     * 候补确认：生成「待支付」预约（不占位），随后由用户走正常支付，支付成功才占位。
+     * 若确认后未在支付时限内付款，预约超时会联动候补顺延下一位。
+     */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> confirm(Long userId, Long id) {
         WaitingQueue queue = mustGetOwned(userId, id);
@@ -114,17 +121,55 @@ public class QueueService {
                 && queue.getExpireTime().isBefore(LocalDateTime.now())) {
             throw new BizException(ResultCode.TIME_WINDOW, "递补确认已超时，机会已顺延");
         }
-        Reservation resv = reservationService.createInternal(userId, queue.getCourtId(), queue.getResvDate(),
+        Reservation resv = reservationService.createPending(userId, queue.getCourtId(), queue.getResvDate(),
                 queue.getStartSlot(), queue.getEndSlot(), Status.SOURCE_SINGLE, null, "候补递补生成", List.of(userId));
+        boolean needPay = resv.getStatus() == Status.RESV_PENDING_PAY;
         queue.setStatus(Status.QUEUE_CONFIRMED);
         queue.setReservationId(resv.getId());
         queueMapper.updateById(queue);
-        noticeService.push(userId, NoticeTypes.RESV_CREATED, "递补成功",
-                "候补递补成功，已生成预约单 " + resv.getResvNo(), "RESERVATION", resv.getId());
-        Map<String, Object> map = new HashMap<>(2);
+        noticeService.push(userId, NoticeTypes.RESV_CREATED, needPay ? "递补成功，请完成支付" : "递补成功",
+                needPay
+                        ? "候补递补已生成预约单 " + resv.getResvNo() + "，请尽快支付；支付成功后场地才会为你保留"
+                        : "候补递补成功，已生成预约单 " + resv.getResvNo(),
+                "RESERVATION", resv.getId());
+        Map<String, Object> map = new HashMap<>(6);
         map.put("reservationId", resv.getId());
         map.put("resvNo", resv.getResvNo());
+        map.put("status", resv.getStatus());
+        map.put("needPay", needPay);
+        map.put("amount", resv.getAmount());
         return map;
+    }
+
+    /** 支付成功后调用：把关联的候补记录标记为已完成（幂等） */
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmByReservation(Long reservationId) {
+        WaitingQueue q = queueMapper.selectOne(Wrappers.<WaitingQueue>lambdaQuery()
+                .eq(WaitingQueue::getReservationId, reservationId)
+                .last("limit 1"));
+        if (q == null || q.getStatus() == Status.QUEUE_CONFIRMED) {
+            return;
+        }
+        q.setStatus(Status.QUEUE_CONFIRMED);
+        queueMapper.updateById(q);
+    }
+
+    /**
+     * 递补生成的预约失效（支付时被抢先 / 支付超时）：候补记录置为过期并顺延下一位。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void invalidateByReservation(Long reservationId, String reason) {
+        WaitingQueue q = queueMapper.selectOne(Wrappers.<WaitingQueue>lambdaQuery()
+                .eq(WaitingQueue::getReservationId, reservationId)
+                .last("limit 1"));
+        if (q == null || q.getStatus() == Status.QUEUE_EXPIRED || q.getStatus() == Status.QUEUE_CANCELLED) {
+            return;
+        }
+        q.setStatus(Status.QUEUE_EXPIRED);
+        queueMapper.updateById(q);
+        noticeService.push(q.getUserId(), NoticeTypes.ADMIN_NOTICE, "候补递补机会已失效",
+                reason + "，候补机会将顺延给下一位", "QUEUE", q.getId());
+        tryPromote(q.getCourtId(), q.getResvDate(), q.getStartSlot(), q.getEndSlot());
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -29,6 +29,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -132,17 +134,45 @@ public class TeamService {
                 .orderByAsc(TeamMember::getId));
         Map<Long, String> users = userNames(members.stream().map(TeamMember::getUserId).toList());
         List<Map<String, Object>> memberVOs = members.stream().map(m -> {
-            Map<String, Object> item = new HashMap<>(6);
+            Map<String, Object> item = new HashMap<>(8);
             item.put("id", m.getId());
             item.put("userId", m.getUserId());
             item.put("nickname", users.getOrDefault(m.getUserId(), "用户" + m.getUserId()));
             item.put("status", m.getStatus());
             item.put("isLeader", m.getIsLeader() != null && m.getIsLeader() == 1);
             item.put("isMe", currentUserId != null && currentUserId.equals(m.getUserId()));
+            item.put("shareAmount", m.getShareAmount());
+            item.put("payStatus", m.getPayStatus());
             return item;
         }).toList();
         map.put("members", memberVOs);
         map.put("isCreator", currentUserId != null && currentUserId.equals(team.getCreatorId()));
+
+        // 拼场均摊支付信息：总额、人均份额、支付进度、当前用户是否已付
+        List<TeamMember> approved = members.stream()
+                .filter(m -> m.getStatus() == Status.TM_APPROVED).toList();
+        BigDecimal amount = BigDecimal.ZERO;
+        if (team.getReservationId() != null) {
+            try {
+                Reservation resv = reservationService.mustGet(team.getReservationId());
+                amount = resv.getAmount() == null ? BigDecimal.ZERO : resv.getAmount();
+            } catch (BizException ignored) {
+                // 预约为空时保持 0
+            }
+        }
+        int memberCount = approved.size();
+        int paidCount = (int) approved.stream()
+                .filter(m -> m.getPayStatus() != null && m.getPayStatus() == 1).count();
+        BigDecimal baseShare = memberCount > 0
+                ? amount.divide(BigDecimal.valueOf(memberCount), 2, RoundingMode.DOWN) : BigDecimal.ZERO;
+        boolean myPaid = approved.stream().anyMatch(m -> currentUserId != null
+                && currentUserId.equals(m.getUserId()) && m.getPayStatus() != null && m.getPayStatus() == 1);
+        map.put("amount", amount);
+        map.put("shareAmount", baseShare);
+        map.put("memberCount", memberCount);
+        map.put("paidCount", paidCount);
+        map.put("myPaid", myPaid);
+        map.put("needPay", team.getStatus() == Status.TEAM_PENDING_PAY);
         return map;
     }
 
@@ -238,6 +268,12 @@ public class TeamService {
         if (team.getCreatorId().equals(userId)) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "队长不能退出，请解散拼场");
         }
+        if (team.getStatus() == Status.TEAM_PENDING_PAY) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "拼场已进入支付阶段，不能退出；如需取消请联系队长解散");
+        }
+        if (team.getStatus() == Status.TEAM_INVALID) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "该拼场订单已失效");
+        }
         TeamMember member = teamMemberMapper.selectOne(Wrappers.<TeamMember>lambdaQuery()
                 .eq(TeamMember::getTeamId, teamId)
                 .eq(TeamMember::getUserId, userId));
@@ -270,19 +306,176 @@ public class TeamService {
         }
         List<TeamMember> members = teamMemberMapper.selectList(Wrappers.<TeamMember>lambdaQuery()
                 .eq(TeamMember::getTeamId, teamId)
-                .eq(TeamMember::getStatus, Status.TM_APPROVED));
+                .eq(TeamMember::getStatus, Status.TM_APPROVED)
+                .orderByAsc(TeamMember::getId));
         List<Long> memberIds = members.stream().map(TeamMember::getUserId).toList();
-        Reservation resv = reservationService.createInternal(leaderId, team.getCourtId(), team.getResvDate(),
+        // 成团：收费场地生成「待支付」预约（不占位，付齐后才占位）；免费场地直接确认占位
+        Reservation resv = reservationService.createPending(leaderId, team.getCourtId(), team.getResvDate(),
                 team.getStartSlot(), team.getEndSlot(), Status.SOURCE_TEAM, teamId, "拼场成团", memberIds);
-        team.setStatus(Status.TEAM_CONFIRMED);
-        team.setReservationId(resv.getId());
-        teamMapper.updateById(team);
-        notifyMembers(team, NoticeTypes.TEAM_FULL, "拼场成团成功",
-                "拼场已生成预约单 " + resv.getResvNo() + "，请按时到场签到");
-        Map<String, Object> map = new HashMap<>(2);
+        boolean needPay = resv.getStatus() == Status.RESV_PENDING_PAY;
+        BigDecimal amount = resv.getAmount() == null ? BigDecimal.ZERO : resv.getAmount();
+        BigDecimal baseShare = BigDecimal.ZERO;
+        if (needPay) {
+            int count = Math.max(1, memberIds.size());
+            baseShare = amount.divide(BigDecimal.valueOf(count), 2, RoundingMode.DOWN);
+            BigDecimal remainder = amount.subtract(baseShare.multiply(BigDecimal.valueOf(count)));
+            // 均摊：每份向下取整到分，差额由队长承担，保证各份之和恰好等于总额
+            for (TeamMember m : members) {
+                BigDecimal mine = baseShare.add(m.getUserId().equals(team.getCreatorId()) ? remainder : BigDecimal.ZERO);
+                m.setShareAmount(mine);
+                m.setPayStatus(0);
+                m.setPayTime(null);
+                teamMemberMapper.updateById(m);
+            }
+            team.setStatus(Status.TEAM_PENDING_PAY);
+            team.setReservationId(resv.getId());
+            teamMapper.updateById(team);
+            int timeout = configService.getInt(ConfigKeys.TEAM_PAY_TIMEOUT_MINUTES, 120);
+            notifyMembers(team, NoticeTypes.TEAM_FULL, "拼场已成团，请完成支付",
+                    String.format("拼场已生成待支付预约单 %s，总额 %s 元，%d 人均摊，每人 %s 元（队长另承担 %s 元差额）。"
+                                    + "%d 分钟内全部付齐后场地才会锁定；逾期未付齐或被其他队伍抢先，本订单自动失效。",
+                            resv.getResvNo(), amount.toPlainString(), count, baseShare.toPlainString(),
+                            remainder.toPlainString(), timeout));
+        } else {
+            team.setStatus(Status.TEAM_CONFIRMED);
+            team.setReservationId(resv.getId());
+            teamMapper.updateById(team);
+            notifyMembers(team, NoticeTypes.TEAM_FULL, "拼场成团成功",
+                    "拼场已生成预约单 " + resv.getResvNo() + "，请按时到场签到");
+        }
+        Map<String, Object> map = new HashMap<>(8);
         map.put("reservationId", resv.getId());
         map.put("resvNo", resv.getResvNo());
+        map.put("status", team.getStatus());
+        map.put("needPay", needPay);
+        map.put("amount", amount);
+        map.put("memberCount", memberIds.size());
+        map.put("shareAmount", baseShare);
         return map;
+    }
+
+    /**
+     * 拼场成员支付自己的份额（模拟支付）。
+     * 全部成员付齐的那一刻才真正占位；若此时场地已被他人抢先支付，整队与预约一起失效。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> pay(Long userId, Long teamId) {
+        Team team = mustGet(teamId);
+        if (team.getStatus() != Status.TEAM_PENDING_PAY) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "当前拼场不在待支付状态");
+        }
+        TeamMember me = teamMemberMapper.selectOne(Wrappers.<TeamMember>lambdaQuery()
+                .eq(TeamMember::getTeamId, teamId)
+                .eq(TeamMember::getUserId, userId));
+        if (me == null || me.getStatus() != Status.TM_APPROVED) {
+            throw new BizException(ResultCode.FORBIDDEN, "你不是该拼场成员");
+        }
+        if (me.getPayStatus() != null && me.getPayStatus() == 1) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "你已完成支付，请等待其他成员");
+        }
+        me.setPayStatus(1);
+        me.setPayTime(LocalDateTime.now());
+        teamMemberMapper.updateById(me);
+
+        List<TeamMember> members = teamMemberMapper.selectList(Wrappers.<TeamMember>lambdaQuery()
+                .eq(TeamMember::getTeamId, teamId)
+                .eq(TeamMember::getStatus, Status.TM_APPROVED));
+        long paidCount = members.stream()
+                .filter(m -> m.getPayStatus() != null && m.getPayStatus() == 1).count();
+        boolean allPaid = paidCount >= members.size();
+        Reservation resv = team.getReservationId() == null ? null : reservationService.mustGet(team.getReservationId());
+        BigDecimal amount = resv == null || resv.getAmount() == null ? BigDecimal.ZERO : resv.getAmount();
+        BigDecimal baseShare = members.isEmpty() ? BigDecimal.ZERO
+                : amount.divide(BigDecimal.valueOf(members.size()), 2, RoundingMode.DOWN);
+        String message = null;
+        if (allPaid && resv != null && resv.getStatus() == Status.RESV_PENDING_PAY) {
+            try {
+                // 付齐时占位：唯一索引兜底，与单笔预约/其他队伍竞争
+                slotService.allocateOnPayment(resv.getCourtId(), resv.getResvDate(),
+                        resv.getStartSlot(), resv.getEndSlot(), resv.getId());
+                reservationService.markConfirmed(resv);
+                team.setStatus(Status.TEAM_CONFIRMED);
+                teamMapper.updateById(team);
+                notifyMembers(team, NoticeTypes.TEAM_FULL, "拼场支付完成",
+                        "费用已付齐，场地已锁定，预约单 " + resv.getResvNo() + " 请按时到场签到");
+            } catch (BizException e) {
+                invalidateByConflict(teamId, "该时段已被他人抢先支付，拼场订单已失效");
+                team.setStatus(Status.TEAM_INVALID);
+                message = "该时段已被他人抢先支付，拼场订单已失效";
+            }
+        }
+        Map<String, Object> map = new HashMap<>(12);
+        map.put("teamId", teamId);
+        map.put("paid", true);
+        map.put("paidCount", paidCount);
+        map.put("memberCount", members.size());
+        map.put("allPaid", allPaid);
+        map.put("amount", amount);
+        map.put("shareAmount", baseShare);
+        map.put("status", team.getStatus());
+        map.put("reservationId", team.getReservationId());
+        map.put("message", message);
+        return map;
+    }
+
+    /** 拼场订单失效：整队置为「已失效」，关联待支付预约作废，并通知全部成员 */
+    @Transactional(rollbackFor = Exception.class)
+    public void invalidateByConflict(Long teamId, String reason) {
+        Team team = teamMapper.selectById(teamId);
+        if (team == null || team.getStatus() == Status.TEAM_INVALID
+                || team.getStatus() == Status.TEAM_DISSOLVED) {
+            return;
+        }
+        if (team.getReservationId() != null) {
+            try {
+                Reservation resv = reservationService.mustGet(team.getReservationId());
+                if (resv.getStatus() == Status.RESV_PENDING_PAY) {
+                    reservationService.markInvalid(resv, reason);
+                }
+            } catch (BizException ignored) {
+                // 预约不存在时忽略，仍要把团队置为失效
+            }
+        }
+        team.setStatus(Status.TEAM_INVALID);
+        teamMapper.updateById(team);
+        notifyMembers(team, NoticeTypes.TEAM_DISSOLVED, "拼场订单已失效",
+                reason + "，请重新发起或加入其他拼场");
+    }
+
+    /** 定时任务：拼场成团后超时未付齐 -> 失效 */
+    @Transactional(rollbackFor = Exception.class)
+    public int expireUnpaidTeams() {
+        int timeoutMinutes = configService.getInt(ConfigKeys.TEAM_PAY_TIMEOUT_MINUTES, 120);
+        List<Team> list = teamMapper.selectList(Wrappers.<Team>lambdaQuery()
+                .eq(Team::getStatus, Status.TEAM_PENDING_PAY)
+                .last("limit 100"));
+        int count = 0;
+        for (Team team : list) {
+            boolean expired = false;
+            if (team.getReservationId() != null) {
+                try {
+                    Reservation resv = reservationService.mustGet(team.getReservationId());
+                    if (resv.getStatus() != Status.RESV_PENDING_PAY) {
+                        // 预约已被系统置为失效（例如被他人抢先支付），团队同步失效
+                        expired = true;
+                    } else {
+                        LocalDateTime deadline = team.getUpdateTime() == null
+                                ? LocalDateTime.now() : team.getUpdateTime().plusMinutes(timeoutMinutes);
+                        expired = LocalDateTime.now().isAfter(deadline)
+                                || LocalDateTime.now().isAfter(resv.getStartTime());
+                    }
+                } catch (BizException e) {
+                    expired = true;
+                }
+            } else {
+                expired = true;
+            }
+            if (expired) {
+                invalidateByConflict(team.getId(), "未在规定时间内付齐费用，拼场订单已失效");
+                count++;
+            }
+        }
+        return count;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -293,6 +486,14 @@ public class TeamService {
         }
         if (team.getStatus() == Status.TEAM_CONFIRMED) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "已生成预约单，请到我的预约中取消");
+        }
+        // 待付齐阶段解散：把关联的待支付预约一并作废
+        if (team.getStatus() == Status.TEAM_PENDING_PAY) {
+            invalidateByConflict(teamId, "队长解散了拼场");
+            return;
+        }
+        if (team.getStatus() == Status.TEAM_INVALID) {
+            throw new BizException(ResultCode.WINDOWS_ERROR, "该拼场订单已失效");
         }
         team.setStatus(Status.TEAM_DISSOLVED);
         teamMapper.updateById(team);
@@ -342,6 +543,10 @@ public class TeamService {
         }
         if (team.getStatus() == Status.TEAM_DISSOLVED) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "该拼场已解散");
+        }
+        if (team.getStatus() == Status.TEAM_PENDING_PAY) {
+            invalidateByConflict(teamId, "管理员解散了拼场");
+            return;
         }
         team.setStatus(Status.TEAM_DISSOLVED);
         teamMapper.updateById(team);

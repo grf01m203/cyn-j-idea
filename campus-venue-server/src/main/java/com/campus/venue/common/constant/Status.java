@@ -27,6 +27,10 @@ public final class Status {
     public static final int TEAM_FULL = 1;
     public static final int TEAM_CONFIRMED = 2;
     public static final int TEAM_DISSOLVED = 3;
+    /** 已成团、等待成员付齐费用（付齐后才占位） */
+    public static final int TEAM_PENDING_PAY = 4;
+    /** 未在时限内付齐，或被他人抢先占位，订单失效 */
+    public static final int TEAM_INVALID = 5;
 
     // 拼场成员状态
     public static final int TM_PENDING = 0;

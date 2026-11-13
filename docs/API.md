@@ -14,7 +14,7 @@
 - 时间格式：`yyyy-MM-dd HH:mm:ss`；日期 `yyyy-MM-dd`。
 - 槽位（slot）：一天按 30 分钟切分，`slotNo=0` 表示 `00:00~00:30`，`slotNo=30` 表示 `15:00~15:30`，即 `slotNo/2 = 小时`。
 - 预约状态 `status`：`0`待支付 `1`已确认 `2`已签到 `3`已完成 `4`未签到 `5`已取消 `6`已过期 `7`逾期取消。
-- 拼场状态 `status`：`0`招募中 `1`人数已满 `2`已成团 `3`已解散。
+- 拼场状态 `status`：`0`招募中 `1`人数已满 `2`已成团 `3`已解散 `4`待付齐 `5`已失效。
 - 入队状态 `status`：`0`等待中 `1`已通知 `2`已确认 `3`已过期 `4`已取消。
 - 成员状态 `status`：`0`待审核 `1`已通过 `2`已拒绝 `3`已退出。
 
@@ -76,11 +76,12 @@
 |---|---|---|---|
 | POST | `/api/v1/teams` | `{courtId,resvDate,startSlot,endSlot,maxMembers,remark}` | `{id}` |
 | GET | `/api/v1/teams?courtId=&date=` | — | `[{id,creatorName,courtName,resvDate,startTime,endTime,maxMembers,currentMembers,status,joined,isCreator}]` |
-| GET | `/api/v1/teams/{id}` | — | `{id,...,members:[{id,userId,nickname,status,isLeader,isMe}]}` |
+| GET | `/api/v1/teams/{id}` | — | `{id,...,amount,shareAmount,memberCount,paidCount,myPaid,needPay,members:[{id,userId,nickname,status,isLeader,isMe,shareAmount,payStatus}]}` |
 | POST | `/api/v1/teams/{id}/join` | — | `{memberId,status:0}`（申请后等待队长审核，同时给队长发消息） |
 | POST | `/api/v1/teams/{id}/members/{memberId}/review?accept=true` | — | `null`（通过后给申请人发消息；满员自动置 `FULL`） |
 | POST | `/api/v1/teams/{id}/quit` | — | `null` |
-| POST | `/api/v1/teams/{id}/confirm` | — | `{reservationId}`（成团并生成预约单，向全体成员推送） |
+| POST | `/api/v1/teams/{id}/confirm` | — | `{reservationId,resvNo,status,needPay,amount,memberCount,shareAmount}`（成团：收费场地生成待支付预约并按成员均摊，向全体成员推送；免费场地直接成团并占位） |
+| POST | `/api/v1/teams/{id}/pay` | — | `{teamId,paid,paidCount,memberCount,allPaid,amount,shareAmount,status,reservationId,message}`（成员支付自己的均摊份额；全部付齐时才占位，若此时已被他人抢先支付则 `status=5` 且 `message` 说明原因） |
 | POST | `/api/v1/teams/{id}/dissolve` | — | `null` |
 
 ## 5. 候补 Queue
@@ -91,6 +92,8 @@
 | GET | `/api/v1/queues/my` | — | `[{id,courtName,resvDate,startTime,endTime,status,expireTime,position}]` |
 | POST | `/api/v1/queues/{id}/confirm` | — | `{reservationId}`（10 分钟内确认，超时自动顺延） |
 | POST | `/api/v1/queues/{id}/cancel` | — | `null` |
+
+> 候补递补流程（v0.6.1）：原占场者取消/失效后，系统通知队首候补者；候补者确认后生成**待支付**预约（不占位），支付成功才占位；若支付时已被他人抢先或超时未付，候补记录置为过期并自动顺延下一位。
 
 ## 6. 签到 Checkin
 

@@ -30,9 +30,10 @@ public class ScheduledTasks {
             int finished = reservationService.finishEnded();
             int queueExpired = queueService.expireTimeout();
             int teamDissolved = teamService.autoDissolveExpired();
-            if (reminded + noShow + expired + finished + queueExpired + teamDissolved > 0) {
-                log.info("定时任务处理完成：开始前提醒={}, 未签到={}, 待支付过期={}, 完成加分={}, 候补超时={}, 拼场解散={}",
-                        reminded, noShow, expired, finished, queueExpired, teamDissolved);
+            int teamInvalid = teamService.expireUnpaidTeams();
+            if (reminded + noShow + expired + finished + queueExpired + teamDissolved + teamInvalid > 0) {
+                log.info("定时任务处理完成：开始前提醒={}, 未签到={}, 待支付过期={}, 完成加分={}, 候补超时={}, 拼场解散={}, 拼场支付超时={}",
+                        reminded, noShow, expired, finished, queueExpired, teamDissolved, teamInvalid);
             }
         } catch (Exception e) {
             log.error("定时任务执行失败", e);

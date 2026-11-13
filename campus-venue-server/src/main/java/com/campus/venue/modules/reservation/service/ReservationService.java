@@ -11,6 +11,7 @@ import com.campus.venue.common.result.ResultCode;
 import com.campus.venue.modules.credit.service.CreditService;
 import com.campus.venue.modules.notice.service.NoticeService;
 import com.campus.venue.modules.queue.service.QueueService;
+import com.campus.venue.modules.team.service.TeamService;
 import com.campus.venue.modules.reservation.entity.Reservation;
 import com.campus.venue.modules.reservation.entity.ReservationMember;
 import com.campus.venue.modules.reservation.mapper.ReservationMapper;
@@ -63,6 +64,8 @@ public class ReservationService {
     private final SysConfigService configService;
     /** 用 ObjectProvider 打破 ReservationService <-> QueueService 的循环依赖 */
     private final ObjectProvider<QueueService> queueServiceProvider;
+    /** 用 ObjectProvider 打破 ReservationService <-> TeamService 的循环依赖 */
+    private final ObjectProvider<TeamService> teamServiceProvider;
 
     public record CreateDTO(@NotNull(message = "场地不能为空") Long courtId,
                             @NotNull(message = "预约日期不能为空") LocalDate resvDate,
@@ -140,6 +143,45 @@ public class ReservationService {
         return resv;
     }
 
+    /**
+     * 生成「待支付」预约但不占位：拼场成团、候补递补使用。
+     * 支付成功后才由 {@link #payMock} 真正占位（allocateOnPayment），
+     * 未支付时该时段仍可被其他人下单，符合「付齐才占场地」的产品规则。
+     * 免费场地没有支付环节，直接走 {@link #createInternal} 立即确认并占位。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Reservation createPending(Long userId, Long courtId, LocalDate date, int startSlot, int endSlot,
+                                     int source, Long teamId, String remark, List<Long> memberIds) {
+        BigDecimal pricePerHour = slotService.validateAndPrice(courtId, date, startSlot, endSlot);
+        BigDecimal amount = slotService.calcAmount(pricePerHour, startSlot, endSlot);
+        if (BigDecimal.ZERO.compareTo(amount) == 0) {
+            return createInternal(userId, courtId, date, startSlot, endSlot, source, teamId, remark, memberIds);
+        }
+        if (!slotService.isFree(courtId, date, startSlot, endSlot)) {
+            throw new BizException(ResultCode.SLOT_OCCUPIED, "该时段已被占用");
+        }
+        CreateDTO dto = new CreateDTO(courtId, date, startSlot, endSlot, null, remark);
+        Reservation resv = buildReservation(userId, dto, amount, source, teamId, generateRequestId());
+        reservationMapper.insert(resv);
+        List<Long> members = (memberIds == null || memberIds.isEmpty()) ? List.of(userId) : memberIds;
+        members.forEach(uid -> addMember(resv.getId(), uid, uid.equals(userId)));
+        return resv;
+    }
+
+    /** 供拼场使用：支付成功后把预约置为已确认（槽位由调用方通过 allocateOnPayment 占用） */
+    public void markConfirmed(Reservation resv) {
+        resv.setStatus(Status.RESV_CONFIRMED);
+        reservationMapper.updateById(resv);
+    }
+
+    /** 供拼场/候补使用：使预约失效 */
+    public void markInvalid(Reservation resv, String reason) {
+        resv.setStatus(Status.RESV_EXPIRED);
+        resv.setCancelTime(LocalDateTime.now());
+        resv.setCancelReason(reason);
+        reservationMapper.updateById(resv);
+    }
+
     private Reservation buildReservation(Long userId, CreateDTO dto, BigDecimal amount, int source,
                                          Long teamId, String requestId) {
         Reservation resv = new Reservation();
@@ -196,21 +238,49 @@ public class ReservationService {
             slotService.allocateOnPayment(resv.getCourtId(), resv.getResvDate(),
                     resv.getStartSlot(), resv.getEndSlot(), resv.getId());
         } catch (BizException e) {
-            // 该时段已被他人抢先支付：本单作废（独立提交），并提示用户重新选择
-            resv.setStatus(Status.RESV_EXPIRED);
-            resv.setCancelTime(LocalDateTime.now());
-            resv.setCancelReason("支付时该时段已被他人占用");
-            reservationMapper.updateById(resv);
-            noticeService.push(userId, NoticeTypes.RESV_CANCELLED, "预约已失效",
-                    "预约 " + resv.getResvNo() + " 支付失败：该时段已被他人抢先支付，本预约已失效，请重新选择时段",
-                    "RESERVATION", resv.getId());
+            // 该时段已被他人抢先支付：本单作废（独立提交），关联候补顺延，并提示用户重新选择
+            expirePending(resv, "支付时该时段已被他人占用");
             throw new BizException(ResultCode.SLOT_OCCUPIED, "该时段已被他人抢先支付，本预约已失效，请重新选择时段");
         }
         resv.setStatus(Status.RESV_CONFIRMED);
         reservationMapper.updateById(resv);
+        // 支付成功即占位：同场地同时段的其他待支付订单（含拼场）立即作废，避免「付了才发现没场地」
+        invalidateConflictingPending(resv);
+        // 候补递补生成的预约：支付成功即视为候补完成
+        queueServiceProvider.getObject().confirmByReservation(resv.getId());
         noticeService.push(userId, NoticeTypes.RESV_CREATED, "支付成功",
                 "预约 " + resv.getResvNo() + " 支付成功，场地已为你保留，请按时到场签到", "RESERVATION", resv.getId());
         return toMap(resv, null, null, userId);
+    }
+
+    /**
+     * 支付成功占位后：同场地、同日期、时段重叠的其他待支付订单一律作废。
+     * 拼场订单会整队置为「已失效」并通知全部成员；候补生成的预约会触发候补顺延。
+     */
+    private void invalidateConflictingPending(Reservation winner) {
+        List<Reservation> pending = reservationMapper.selectList(Wrappers.<Reservation>lambdaQuery()
+                .eq(Reservation::getStatus, Status.RESV_PENDING_PAY)
+                .eq(Reservation::getCourtId, winner.getCourtId())
+                .eq(Reservation::getResvDate, winner.getResvDate())
+                .lt(Reservation::getStartSlot, winner.getEndSlot())
+                .gt(Reservation::getEndSlot, winner.getStartSlot())
+                .ne(Reservation::getId, winner.getId())
+                .last("limit 100"));
+        for (Reservation r : pending) {
+            expirePending(r, "该时段已被他人抢先支付");
+        }
+    }
+
+    /** 待支付订单作废：落库 + 通知 + 联动拼场/候补 */
+    private void expirePending(Reservation resv, String reason) {
+        markInvalid(resv, reason);
+        noticeService.push(resv.getUserId(), NoticeTypes.RESV_CANCELLED, "预约已失效",
+                "预约 " + resv.getResvNo() + " " + reason + "，已自动失效，请重新预约",
+                "RESERVATION", resv.getId());
+        if (resv.getSource() == Status.SOURCE_TEAM && resv.getTeamId() != null) {
+            teamServiceProvider.getObject().invalidateByConflict(resv.getTeamId(), reason);
+        }
+        queueServiceProvider.getObject().invalidateByReservation(resv.getId(), reason);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -411,21 +481,16 @@ public class ReservationService {
         return list.size();
     }
 
-    /** 待支付超 15 分钟 -> 过期。待支付订单不占位，因此无需释放槽位、也不触发候补递补 */
+    /** 待支付超时 -> 过期。待支付订单不占位；拼场订单由 TeamService 按自身时限处理 */
     @Transactional(rollbackFor = Exception.class)
     public int expireUnpaid() {
         List<Reservation> list = reservationMapper.selectList(Wrappers.<Reservation>lambdaQuery()
                 .eq(Reservation::getStatus, Status.RESV_PENDING_PAY)
+                .ne(Reservation::getSource, Status.SOURCE_TEAM)
                 .lt(Reservation::getCreateTime, LocalDateTime.now().minusMinutes(15))
                 .last("limit 100"));
         for (Reservation resv : list) {
-            resv.setStatus(Status.RESV_EXPIRED);
-            resv.setCancelTime(LocalDateTime.now());
-            resv.setCancelReason("待支付超时");
-            reservationMapper.updateById(resv);
-            noticeService.push(resv.getUserId(), NoticeTypes.RESV_CANCELLED, "预约已过期",
-                    "预约 " + resv.getResvNo() + " 超过 15 分钟未支付，已自动失效，请重新预约",
-                    "RESERVATION", resv.getId());
+            expirePending(resv, "超过 15 分钟未支付");
         }
         return list.size();
     }

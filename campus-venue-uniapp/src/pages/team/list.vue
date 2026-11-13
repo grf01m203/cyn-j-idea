@@ -80,9 +80,10 @@ function statusText(s) {
   return (TEAM_STATUS[s] && TEAM_STATUS[s].text) || '未知'
 }
 function statusClass(s) {
-  if (s === 2) return 'tag-green'
-  if (s === 1) return 'tag-orange'
-  if (s === 3) return 'tag-gray'
+  const n = Number(s)
+  if (n === 2) return 'tag-green'
+  if (n === 1 || n === 4) return 'tag-orange'
+  if (n === 3 || n === 5) return 'tag-gray'
   return 'tag-blue'
 }
 function percent(t) {

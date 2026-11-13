@@ -24,7 +24,50 @@
               {{ detail.currentMembers || 0 }}/{{ detail.maxMembers || 0 }} 人
             </text>
           </view>
+          <view class="hero-money" v-if="detail.amount != null">
+            <text class="hero-money-text">总额 ¥{{ money(detail.amount) }}</text>
+            <text class="hero-money-text" v-if="shareAmount != null">人均 ¥{{ money(shareAmount) }}</text>
+          </view>
           <text class="text-sm text-muted" v-if="detail.remark">备注：{{ detail.remark }}</text>
+        </view>
+
+        <!-- 成团待支付：支付进度 + 我的支付入口 -->
+        <view class="card pay-card" v-if="needPayFlag">
+          <view class="row-between">
+            <text class="card-title">支付进度</text>
+            <text class="text-sm" :class="paidCount >= totalMembers && totalMembers > 0 ? 'text-success' : 'text-primary'">
+              已付 {{ paidCount }}/{{ totalMembers }} 人
+            </text>
+          </view>
+          <view class="pay-progress">
+            <view class="pay-progress-inner" :style="{ width: payPercent + '%' }"></view>
+          </view>
+          <view class="kv">
+            <text class="kv-k">拼场总额</text>
+            <text class="kv-v">¥{{ money(detail.amount) }}</text>
+          </view>
+          <view class="kv">
+            <text class="kv-k">我的份额</text>
+            <text class="kv-v text-primary">¥{{ money(myShareAmount) }}</text>
+          </view>
+          <text class="text-sm text-muted pay-tip">
+            需队长与队员均摊并各自支付自己的份额，全部付齐后才占用场地。
+          </text>
+          <button
+            v-if="canPayMyShare"
+            class="btn btn-primary pay-btn"
+            :disabled="paying"
+            @click="onPay"
+          >支付我的份额 ¥{{ money(myShareAmount) }}</button>
+          <text v-else-if="myPaid" class="text-sm text-success pay-tip">你已支付自己的份额，等待其他成员支付</text>
+        </view>
+
+        <!-- 已失效 -->
+        <view class="card" v-if="Number(detail.status) === 5">
+          <text class="card-title">拼场已失效</text>
+          <text class="text-sm text-danger">
+            未在规定时间内付齐，或该时段已被他人抢先支付，本拼场订单已失效。
+          </text>
         </view>
 
         <view class="card">
@@ -40,6 +83,14 @@
           <view class="kv">
             <text class="kv-k">状态</text>
             <text class="kv-v">{{ statusText(detail.status) }}</text>
+          </view>
+          <view class="kv" v-if="detail.amount != null">
+            <text class="kv-k">总额</text>
+            <text class="kv-v">¥{{ money(detail.amount) }}</text>
+          </view>
+          <view class="kv" v-if="shareAmount != null">
+            <text class="kv-k">人均</text>
+            <text class="kv-v">¥{{ money(shareAmount) }}</text>
           </view>
           <view class="kv" v-if="detail.reservationId">
             <text class="kv-k">关联预约单</text>
@@ -57,7 +108,7 @@
             <text class="text-sm text-muted">暂无成员</text>
           </view>
 
-          <view class="member-item" v-for="m in members" :key="m.id">
+          <view class="member-item" v-for="m in members" :key="m.id || m.userId">
             <view class="avatar">{{ (m.nickname || 'U').slice(0, 1) }}</view>
             <view class="col flex-1">
               <view class="row">
@@ -65,7 +116,18 @@
                 <text class="tag tag-blue leader-tag" v-if="m.isLeader">队长</text>
                 <text class="tag tag-orange leader-tag" v-if="m.isMe">我</text>
               </view>
-              <text class="text-sm" :class="memberStatusClass(m.status)">{{ memberStatusText(m.status) }}</text>
+              <view class="row member-meta">
+                <text
+                  class="text-sm"
+                  :class="memberStatusClass(m.status)"
+                  v-if="m.status !== undefined && m.status !== null"
+                >{{ memberStatusText(m.status) }}</text>
+                <text class="tag tag-green member-pay-tag" v-if="payStatusOf(m) === 1">已支付</text>
+                <text class="tag tag-red member-pay-tag" v-else-if="payStatusOf(m) === 0">未支付</text>
+                <text class="text-sm text-muted member-pay-tag" v-if="m.shareAmount != null">
+                  ¥{{ money(m.shareAmount) }}
+                </text>
+              </view>
             </view>
             <view class="row" v-if="isLeader && Number(m.status) === 0 && !(m.isLeader === true || Number(m.isLeader) === 1)">
               <button class="btn btn-primary btn-sm review-btn" :disabled="reviewing" @click="review(m, true)">
@@ -86,30 +148,30 @@
 
       <!-- 申请加入：非成员、招募中 -->
       <button
-        v-if="!myMember && (detail.status === 0 || detail.status === 1)"
+        v-if="!myMember && (Number(detail.status) === 0 || Number(detail.status) === 1)"
         class="btn btn-primary bar-btn"
         :disabled="acting"
         @click="onJoin"
       >申请加入</button>
 
-      <!-- 退出：已加入且非队长 -->
+      <!-- 退出：已加入且非队长；待付齐/已失效时不适用 -->
       <button
-        v-if="myMember && !isLeader && Number(myMember.status) !== 3"
+        v-if="myMember && !isLeader && Number(myMember.status) !== 3 && !invalidStatus"
         class="btn btn-danger bar-btn"
         :disabled="acting"
         @click="onQuit"
       >退出拼场</button>
 
-      <!-- 队长：成团 / 解散 -->
+      <!-- 队长：成团 / 解散（仅招募中 / 人数已满可成团） -->
       <template v-if="isLeader">
         <button
-          v-if="detail.status !== 2 && detail.status !== 3"
+          v-if="Number(detail.status) === 0 || Number(detail.status) === 1"
           class="btn btn-primary bar-btn"
           :disabled="acting"
           @click="openConfirm"
         >确认成团</button>
         <button
-          v-if="detail.status !== 3"
+          v-if="Number(detail.status) !== 3 && !invalidStatus"
           class="btn btn-danger bar-btn"
           :disabled="acting"
           @click="onDissolve"
@@ -134,8 +196,16 @@
         <text class="kv-k">当前人数</text>
         <text class="kv-v">{{ detail.currentMembers || 0 }}/{{ detail.maxMembers || 0 }}</text>
       </view>
+      <view class="kv" v-if="detail.amount != null">
+        <text class="kv-k">拼场总额</text>
+        <text class="kv-v">¥{{ money(detail.amount) }}</text>
+      </view>
+      <view class="kv" v-if="shareAmount != null">
+        <text class="kv-k">人均份额</text>
+        <text class="kv-v">¥{{ money(shareAmount) }}</text>
+      </view>
       <text class="text-sm text-muted">
-        成团后将自动生成预约单并推送给全体成员，费用按约定分摊，请在「我的预约」中完成支付。
+        成团后将自动生成预约单并推送给全体成员；需队长与队员各自支付自己的份额，全部付齐后才占用场地（免费场地无需支付）。
       </text>
     </Modal>
   </view>
@@ -146,9 +216,9 @@ import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import StateView from '@/components/StateView.vue'
 import Modal from '@/components/Modal.vue'
-import { getTeamDetail, joinTeam, reviewTeamMember, quitTeam, confirmTeam, dissolveTeam } from '@/api/team.js'
+import { getTeamDetail, joinTeam, reviewTeamMember, quitTeam, confirmTeam, dissolveTeam, payTeamShare } from '@/api/team.js'
 import { TEAM_STATUS, MEMBER_STATUS } from '@/config/index.js'
-import { shortTime, toast } from '@/utils/date.js'
+import { shortTime, toast, money } from '@/utils/date.js'
 import { requireLogin, paramOf } from '@/utils/nav.js'
 
 const id = ref('')
@@ -157,6 +227,7 @@ const state = ref('loading')
 const errorMsg = ref('加载失败，请稍后重试')
 const acting = ref(false)
 const reviewing = ref(false)
+const paying = ref(false)
 const confirmVisible = ref(false)
 let loaded = false
 
@@ -180,13 +251,68 @@ const percent = computed(() => {
   return Math.min(100, Math.round((Number(detail.value.currentMembers || 0) / max) * 100))
 })
 
+/** 状态 4 待付齐 / 5 已失效 */
+const invalidStatus = computed(() => {
+  const s = Number(detail.value.status)
+  return s === 4 || s === 5
+})
+/** needPay：优先取后端字段，其次看 status=4 */
+const needPayFlag = computed(() => {
+  const n = detail.value.needPay
+  if (n === true || Number(n) === 1) return true
+  return Number(detail.value.status) === 4
+})
+/** 总人数：memberCount 优先，退回 currentMembers / 成员列表长度 */
+const totalMembers = computed(() => {
+  const n = Number(detail.value.memberCount || detail.value.currentMembers || 0)
+  return n || members.value.length
+})
+/** 已支付人数：paidCount 优先，退回成员列表统计 */
+const paidCount = computed(() => {
+  const n = detail.value.paidCount
+  if (n !== undefined && n !== null && !isNaN(Number(n))) return Number(n)
+  return members.value.filter((m) => payStatusOf(m) === 1).length
+})
+/** 人均份额：shareAmount 优先，退回我的成员份额 */
+const shareAmount = computed(() => {
+  const n = detail.value.shareAmount
+  if (n !== undefined && n !== null && n !== '') return n
+  return myMember.value && myMember.value.shareAmount != null ? myMember.value.shareAmount : null
+})
+/** 我的份额：优先成员条目里的 shareAmount */
+const myShareAmount = computed(() => {
+  if (myMember.value && myMember.value.shareAmount != null) return myMember.value.shareAmount
+  return shareAmount.value
+})
+/** 我是否已支付 */
+const myPaid = computed(() => {
+  const p = detail.value.myPaid
+  if (p === true || Number(p) === 1) return true
+  if (p === false || Number(p) === 0) return false
+  return payStatusOf(myMember.value) === 1
+})
+/** 是否展示「支付我的份额」按钮 */
+const canPayMyShare = computed(() => needPayFlag.value && !myPaid.value)
+const payPercent = computed(() => {
+  const total = totalMembers.value
+  if (!total) return 0
+  return Math.min(100, Math.round((paidCount.value / total) * 100))
+})
+
+/** 成员支付状态：0 未付 / 1 已付，字段缺失返回 null */
+function payStatusOf(m) {
+  if (!m || m.payStatus === undefined || m.payStatus === null) return null
+  return Number(m.payStatus)
+}
+
 function statusText(s) {
   return (TEAM_STATUS[s] && TEAM_STATUS[s].text) || '未知'
 }
 function statusClass(s) {
-  if (s === 2) return 'tag-green'
-  if (s === 1) return 'tag-orange'
-  if (s === 3) return 'tag-gray'
+  const n = Number(s)
+  if (n === 2) return 'tag-green'
+  if (n === 1 || n === 4) return 'tag-orange'
+  if (n === 3 || n === 5) return 'tag-gray'
   return 'tag-blue'
 }
 function memberStatusText(s) {
@@ -269,13 +395,19 @@ function openConfirm() {
   confirmVisible.value = true
 }
 
-/** 确认成团 -> {reservationId} */
+/** 确认成团 -> {reservationId,resvNo,status,needPay,amount,memberCount,shareAmount} */
 async function onConfirm() {
   if (acting.value) return
   acting.value = true
   try {
     const data = await confirmTeam(id.value)
     confirmVisible.value = false
+    // 收费场地：成团后进入「待付齐」，各成员分别支付自己的份额
+    if (data && (data.needPay === true || Number(data.needPay) === 1)) {
+      toast('已成团，请各位成员完成支付')
+      load()
+      return
+    }
     uni.showModal({
       title: '成团成功',
       content: `已生成预约单 #${(data && data.reservationId) || '-'}，已向全体成员推送消息`,
@@ -293,6 +425,33 @@ async function onConfirm() {
     if (e && e.message) toast(e.message)
   } finally {
     acting.value = false
+  }
+}
+
+/**
+ * 支付我的份额（模拟支付）
+ * -> {paid,paidCount,memberCount,allPaid,amount,shareAmount,status,reservationId,message}
+ * status=5：被他人抢先支付，接口不报错，只返回 message
+ */
+async function onPay() {
+  if (paying.value) return
+  paying.value = true
+  try {
+    const data = await payTeamShare(id.value)
+    const st = Number(data && data.status)
+    if (st === 5) {
+      toast((data && data.message) || '该时段已被他人抢先支付，拼场订单已失效')
+    } else if (data && (data.allPaid === true || Number(data.allPaid) === 1)) {
+      toast('已付齐，拼场成团成功', 'success')
+    } else {
+      toast('支付成功，等待其他成员支付')
+    }
+    await load()
+  } catch (e) {
+    if (e && e.message) toast(e.message)
+    load()
+  } finally {
+    paying.value = false
   }
 }
 
@@ -383,6 +542,47 @@ onShow(() => {
 }
 .progress-text {
   color: rgba(255, 255, 255, 0.9);
+}
+.hero-money {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+.hero-money-text {
+  font-size: 26rpx;
+  color: #ffffff;
+  margin-right: 24rpx;
+}
+.pay-card {
+  border: 1rpx solid #ffe7ba;
+  background-color: #fffaf0;
+}
+.pay-progress {
+  height: 14rpx;
+  background-color: #ffe7ba;
+  border-radius: 7rpx;
+  overflow: hidden;
+  margin: 16rpx 0 8rpx;
+}
+.pay-progress-inner {
+  height: 14rpx;
+  background-color: #fa8c16;
+  border-radius: 7rpx;
+}
+.pay-tip {
+  display: block;
+  margin-top: 12rpx;
+}
+.pay-btn {
+  margin-top: 20rpx;
+}
+.member-meta {
+  margin-top: 8rpx;
+  align-items: center;
+}
+.member-pay-tag {
+  margin-left: 12rpx;
 }
 .card-title {
   display: block;

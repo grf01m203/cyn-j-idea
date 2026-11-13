@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -18,6 +19,11 @@ public class TeamMember {
     /** 0待审核 1已通过 2已拒绝 3已退出 */
     private Integer status;
     private Integer isLeader;
+    /** 拼场均摊后本成员应付金额 */
+    private BigDecimal shareAmount;
+    /** 0未支付 1已支付 */
+    private Integer payStatus;
+    private LocalDateTime payTime;
     private LocalDateTime joinTime;
     private LocalDateTime reviewTime;
     private LocalDateTime createTime;

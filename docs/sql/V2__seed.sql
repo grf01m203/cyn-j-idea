@@ -27,6 +27,7 @@ INSERT INTO sys_config (config_key, config_value, remark) VALUES
  ('reservation.cancel.free.hours', '4', '免费取消时限(小时)'),
  ('reservation.max.advance.days',  '7', '最多可提前预约的天数'),
  ('reservation.remind.minutes',    '30', '预约开始前提醒提前量(分钟)，0 表示关闭'),
+ ('team.pay.timeout.minutes',   '120', '拼场成团后付齐时限(分钟)，超时订单失效'),
  ('checkin.window.minutes',   '15',  '签到时间窗(开始前后各N分钟)'),
  ('queue.hold.minutes',       '10',  '候补递补确认时限(分钟)')
 ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), remark = VALUES(remark);

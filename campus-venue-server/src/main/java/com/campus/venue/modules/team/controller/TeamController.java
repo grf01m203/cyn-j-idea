@@ -68,6 +68,12 @@ public class TeamController {
         return R.ok(teamService.confirm(StpUtil.getLoginIdAsLong(), id));
     }
 
+    /** 拼场成员支付自己的均摊份额（全部付齐后才占位） */
+    @PostMapping("/{id}/pay")
+    public R<Map<String, Object>> pay(@PathVariable Long id) {
+        return R.ok(teamService.pay(StpUtil.getLoginIdAsLong(), id));
+    }
+
     @PostMapping("/{id}/dissolve")
     public R<Void> dissolve(@PathVariable Long id) {
         teamService.dissolve(StpUtil.getLoginIdAsLong(), id);

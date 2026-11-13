@@ -47,7 +47,19 @@
             </view>
           </view>
 
-          <view class="row ops" v-if="Number(q.status) === 0 || Number(q.status) === 1">
+          <!-- 已生成待支付预约：引导去支付 -->
+          <view class="notify-box pay-box" v-if="canPayOf(q)">
+            <text class="text-sm text-bold text-primary">已生成待支付预约，请完成支付后占位</text>
+            <text class="text-sm text-muted" v-if="resvIdOf(q)">关联预约 #{{ resvIdOf(q) }}</text>
+          </view>
+
+          <view class="row ops" v-if="showOps(q)">
+            <button
+              v-if="canPayOf(q)"
+              class="btn btn-primary btn-sm op"
+              :disabled="actingId === q.id"
+              @click="goPay(q)"
+            >去支付</button>
             <button
               v-if="Number(q.status) === 1"
               class="btn btn-primary btn-sm op"
@@ -55,6 +67,7 @@
               @click="onConfirm(q)"
             >确认递补</button>
             <button
+              v-if="Number(q.status) === 0 || Number(q.status) === 1"
               class="btn btn-danger btn-sm op"
               :disabled="actingId === q.id"
               @click="onCancel(q)"
@@ -117,6 +130,40 @@ function remainOf(q) {
   return toTimestamp(q.expireTime) - now.value
 }
 
+/** 关联预约 id（兼容 reservationId / reservation_id） */
+function resvIdOf(q) {
+  if (!q) return ''
+  const v = q.reservationId != null ? q.reservationId : q.reservation_id
+  return v === null || v === undefined || v === '' || Number(v) === 0 ? '' : v
+}
+
+/** 是否可去支付：已通知/已确认，且 canPay=true 或已生成预约 */
+function canPayOf(q) {
+  if (!q) return false
+  const s = Number(q.status)
+  if (s !== 1 && s !== 2) return false
+  const canPay = q.canPay === true || Number(q.canPay) === 1
+  return canPay || !!resvIdOf(q)
+}
+
+/** 操作区是否展示：等待中 / 已通知 / 可去支付 */
+function showOps(q) {
+  if (!q) return false
+  const s = Number(q.status)
+  return s === 0 || s === 1 || canPayOf(q)
+}
+
+/** 去支付：跳转预约详情页完成支付 */
+function goPay(q) {
+  const rid = resvIdOf(q)
+  if (!rid) {
+    toast('预约信息尚未生成，请稍后刷新')
+    load()
+    return
+  }
+  uni.navigateTo({ url: `/pages/reservation/detail?id=${rid}` })
+}
+
 async function load() {
   state.value = 'loading'
   try {
@@ -134,6 +181,18 @@ async function onConfirm(q) {
   actingId.value = q.id
   try {
     const data = await confirmQueue(q.id)
+    const needPay = data && (data.needPay === true || Number(data.needPay) === 1)
+    // 递补确认后生成「待支付」预约，直接引导去支付
+    if (needPay) {
+      toast('已生成待支付预约，请完成支付')
+      const rid = (data && data.reservationId) || resvIdOf(q)
+      if (rid) {
+        uni.navigateTo({ url: `/pages/reservation/detail?id=${rid}` })
+      } else {
+        load()
+      }
+      return
+    }
     uni.showModal({
       title: '递补成功',
       content: `已生成预约单 #${(data && data.reservationId) || '-'}，请在「我的预约」中完成支付`,
@@ -233,6 +292,17 @@ onUnmounted(() => stopTicker())
   padding: 16rpx;
   background-color: #fff7e6;
   border-radius: 10rpx;
+}
+.pay-box {
+  display: flex;
+  flex-direction: column;
+  background-color: #f0f7ff;
+}
+.pay-box text {
+  margin-top: 6rpx;
+}
+.pay-box text:first-child {
+  margin-top: 0;
 }
 .ops {
   margin-top: 18rpx;

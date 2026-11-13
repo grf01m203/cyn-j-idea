@@ -57,7 +57,9 @@ export const TEAM_STATUS = {
   0: { text: '招募中', color: '#1677ff' },
   1: { text: '人数已满', color: '#fa8c16' },
   2: { text: '已成团', color: '#52c41a' },
-  3: { text: '已解散', color: '#8c8c8c' }
+  3: { text: '已解散', color: '#8c8c8c' },
+  4: { text: '待付齐', color: '#fa8c16' },
+  5: { text: '已失效', color: '#8c8c8c' }
 }
 
 /** 候补状态字典 */

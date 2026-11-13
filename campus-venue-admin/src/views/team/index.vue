@@ -50,7 +50,7 @@
 
         <div class="table-toolbar">
           <span class="text-muted">共 {{ total }} 个拼场</span>
-          <span class="text-muted">状态字典：0 招募中 / 1 已满 / 2 已成团 / 3 已解散</span>
+          <span class="text-muted">状态字典：0 招募中 / 1 已满 / 2 已成团 / 3 已解散 / 4 待付齐 / 5 已失效</span>
         </div>
 
         <el-table :data="list" v-loading="loading" border stripe>
