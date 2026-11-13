@@ -257,6 +257,8 @@ async function onPay(item) {
     setTimeout(() => load(true), 600)
   } catch (e) {
     if (e && e.message) toast(e.message)
+    // 支付失败可能是时段被他人抢先支付导致本单失效，刷新列表同步最新状态
+    setTimeout(() => load(true), 600)
   }
 }
 

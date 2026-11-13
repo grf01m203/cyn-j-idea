@@ -90,18 +90,36 @@ public class ReservationService {
         creditService.assertCanReserve(user);
         BigDecimal pricePerHour = slotService.validateAndPrice(dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot());
         BigDecimal amount = slotService.calcAmount(pricePerHour, dto.startSlot(), dto.endSlot());
+        boolean free = BigDecimal.ZERO.compareTo(amount) == 0;
+
+        // 收费场地：未支付不占位。创建前只做「当前是否已被占用」的快速校验，
+        // 真正占位发生在支付成功那一刻（见 payMock -> allocateOnPayment），
+        // 这样未付款的订单不会把场地锁死，其他用户可以同时下单并竞争支付。
+        if (!free && !slotService.isFree(dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot())) {
+            throw new BizException(ResultCode.SLOT_OCCUPIED, "该时段已被占用，请选择其他时段");
+        }
 
         Reservation resv = buildReservation(userId, dto, amount, Status.SOURCE_SINGLE, null,
                 StringUtils.hasText(dto.requestId()) ? dto.requestId() : generateRequestId());
         reservationMapper.insert(resv);
-        // 关键：唯一索引兜底，任一槽位被抢占即整体回滚
-        slotService.allocate(dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot(), resv.getId());
         addMember(resv.getId(), userId, true);
+        if (free) {
+            // 免费场地无需支付，创建即确认并立即占位（唯一索引兜底并发）
+            slotService.allocate(dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot(), resv.getId());
+        }
 
-        noticeService.push(userId, NoticeTypes.RESV_CREATED, "预约成功",
-                String.format("%s %s~%s 预约成功，单号 %s", dto.resvDate(),
-                        SlotService.slotStartTime(dto.startSlot()), SlotService.slotStartTime(dto.endSlot()), resv.getResvNo()),
-                "RESERVATION", resv.getId());
+        String slotText = String.format("%s %s~%s", dto.resvDate(),
+                SlotService.slotStartTime(dto.startSlot()), SlotService.slotStartTime(dto.endSlot()));
+        if (free) {
+            noticeService.push(userId, NoticeTypes.RESV_CREATED, "预约成功",
+                    String.format("%s 预约成功，单号 %s", slotText, resv.getResvNo()),
+                    "RESERVATION", resv.getId());
+        } else {
+            noticeService.push(userId, NoticeTypes.RESV_CREATED, "预约已创建",
+                    String.format("%s 预约已创建，请在 15 分钟内完成支付；支付成功后场地才会为你保留（单号 %s）",
+                            slotText, resv.getResvNo()),
+                    "RESERVATION", resv.getId());
+        }
         return toMap(resv, null, null, userId);
     }
 
@@ -158,7 +176,14 @@ public class ReservationService {
 
     // ------------------------------------------------------------ 状态变更 ----
 
-    @Transactional(rollbackFor = Exception.class)
+    /**
+     * 模拟支付：支付成功那一刻才真正占用场地。
+     * <p>
+     * 未支付订单不占位，因此同一时段可能有多笔待支付订单；支付时用唯一索引竞争，
+     * 只有第一笔能占位成功，其余订单立即置为「已过期」并返回 30001，避免超卖。
+     * 方法本身不加事务：占位走 SlotService 的独立事务（撞唯一索引时整体回滚），
+     * 占位失败后需要把「本单作废」的状态独立提交，不能被异常回滚。
+     */
     public Map<String, Object> payMock(Long userId, Long id) {
         Reservation resv = mustGet(id);
         if (!resv.getUserId().equals(userId)) {
@@ -167,10 +192,24 @@ public class ReservationService {
         if (resv.getStatus() != Status.RESV_PENDING_PAY) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "当前状态无需支付");
         }
+        try {
+            slotService.allocateOnPayment(resv.getCourtId(), resv.getResvDate(),
+                    resv.getStartSlot(), resv.getEndSlot(), resv.getId());
+        } catch (BizException e) {
+            // 该时段已被他人抢先支付：本单作废（独立提交），并提示用户重新选择
+            resv.setStatus(Status.RESV_EXPIRED);
+            resv.setCancelTime(LocalDateTime.now());
+            resv.setCancelReason("支付时该时段已被他人占用");
+            reservationMapper.updateById(resv);
+            noticeService.push(userId, NoticeTypes.RESV_CANCELLED, "预约已失效",
+                    "预约 " + resv.getResvNo() + " 支付失败：该时段已被他人抢先支付，本预约已失效，请重新选择时段",
+                    "RESERVATION", resv.getId());
+            throw new BizException(ResultCode.SLOT_OCCUPIED, "该时段已被他人抢先支付，本预约已失效，请重新选择时段");
+        }
         resv.setStatus(Status.RESV_CONFIRMED);
         reservationMapper.updateById(resv);
         noticeService.push(userId, NoticeTypes.RESV_CREATED, "支付成功",
-                "预约 " + resv.getResvNo() + " 支付成功，请按时到场签到", "RESERVATION", resv.getId());
+                "预约 " + resv.getResvNo() + " 支付成功，场地已为你保留，请按时到场签到", "RESERVATION", resv.getId());
         return toMap(resv, null, null, userId);
     }
 
@@ -183,6 +222,8 @@ public class ReservationService {
         if (resv.getStatus() != Status.RESV_PENDING_PAY && resv.getStatus() != Status.RESV_CONFIRMED) {
             throw new BizException(ResultCode.WINDOWS_ERROR, "当前状态不可取消");
         }
+        // 只有「已确认」的预约真正占着槽位；待支付订单未占位，取消时不该触发候补递补
+        boolean heldSlot = resv.getStatus() == Status.RESV_CONFIRMED;
         int window = configService.getInt(ConfigKeys.CHECKIN_WINDOW_MINUTES, 15);
         LocalDateTime now = LocalDateTime.now();
         // 开始前随时可取消；开始后仅保留 CHECKIN_WINDOW_MINUTES 的宽限期（逾期取消按迟到扣分），
@@ -209,9 +250,11 @@ public class ReservationService {
         noticeService.push(resv.getUserId(), NoticeTypes.RESV_CANCELLED, "预约已取消",
                 String.format("预约 %s 已取消%s", resv.getResvNo(), penalty > 0 ? "，扣减信用分 " + penalty : ""),
                 "RESERVATION", resv.getId());
-        // 释放槽位后触发候补递补
-        queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
-                resv.getStartSlot(), resv.getEndSlot());
+        // 只有真正释放了槽位才需要触发候补递补
+        if (heldSlot) {
+            queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
+                    resv.getStartSlot(), resv.getEndSlot());
+        }
         return toMap(resv, null, null, userId);
     }
 
@@ -222,6 +265,8 @@ public class ReservationService {
         if (resv.getStatus() == Status.RESV_CANCELLED || resv.getStatus() == Status.RESV_EXPIRED) {
             return;
         }
+        // 仅「已确认/已签到」的预约占着槽位；待支付订单未占位，无需释放与递补
+        boolean heldSlot = resv.getStatus() == Status.RESV_CONFIRMED || resv.getStatus() == Status.RESV_SIGNED;
         resv.setStatus(Status.RESV_CANCELLED);
         resv.setCancelTime(LocalDateTime.now());
         resv.setCancelReason(StringUtils.hasText(reason) ? reason : "管理员强制取消");
@@ -229,8 +274,10 @@ public class ReservationService {
         slotService.release(id);
         noticeService.push(resv.getUserId(), NoticeTypes.ADMIN_NOTICE, "预约被取消",
                 "您的预约 " + resv.getResvNo() + " 已被管理员取消：" + resv.getCancelReason(), "RESERVATION", id);
-        queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
-                resv.getStartSlot(), resv.getEndSlot());
+        if (heldSlot) {
+            queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
+                    resv.getStartSlot(), resv.getEndSlot());
+        }
     }
 
     // ------------------------------------------------------------ 查询 ----
@@ -364,7 +411,7 @@ public class ReservationService {
         return list.size();
     }
 
-    /** 待支付超 15 分钟 -> 过期，释放槽位 */
+    /** 待支付超 15 分钟 -> 过期。待支付订单不占位，因此无需释放槽位、也不触发候补递补 */
     @Transactional(rollbackFor = Exception.class)
     public int expireUnpaid() {
         List<Reservation> list = reservationMapper.selectList(Wrappers.<Reservation>lambdaQuery()
@@ -373,10 +420,12 @@ public class ReservationService {
                 .last("limit 100"));
         for (Reservation resv : list) {
             resv.setStatus(Status.RESV_EXPIRED);
+            resv.setCancelTime(LocalDateTime.now());
+            resv.setCancelReason("待支付超时");
             reservationMapper.updateById(resv);
-            slotService.release(resv.getId());
-            queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
-                    resv.getStartSlot(), resv.getEndSlot());
+            noticeService.push(resv.getUserId(), NoticeTypes.RESV_CANCELLED, "预约已过期",
+                    "预约 " + resv.getResvNo() + " 超过 15 分钟未支付，已自动失效，请重新预约",
+                    "RESERVATION", resv.getId());
         }
         return list.size();
     }

@@ -194,6 +194,8 @@ async function onPay() {
     setTimeout(load, 600)
   } catch (e) {
     if (e && e.message) toast(e.message)
+    // 支付失败可能是时段已被他人抢先支付导致本单失效，刷新一次同步状态
+    setTimeout(load, 600)
   }
 }
 

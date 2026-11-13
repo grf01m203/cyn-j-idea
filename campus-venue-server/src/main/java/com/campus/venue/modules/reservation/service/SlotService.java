@@ -13,6 +13,8 @@ import com.campus.venue.modules.venue.mapper.VenueOpenRuleMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -165,6 +167,18 @@ public class SlotService {
                 throw new BizException(ResultCode.SLOT_OCCUPIED, "时段 " + label(slotNo) + " 已被占用，请重新选择");
             }
         }
+    }
+
+    /**
+     * 支付成功后占位：独立事务（REQUIRES_NEW）。
+     * <p>
+     * 「待支付」订单不占位，只有支付成功那一刻才真正占用场地，因此可能有多笔待支付订单争抢同一时段。
+     * 用独立事务包住整段插入：一旦某个槽位撞到唯一索引，本方法内已插入的槽位会一起回滚，
+     * 不会留下「占了一半」的脏数据，也不会污染调用方的事务。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public void allocateOnPayment(Long courtId, LocalDate date, int startSlot, int endSlot, Long reservationId) {
+        allocate(courtId, date, startSlot, endSlot, reservationId);
     }
 
     /** 释放预约占用的全部槽位（物理删除，保证唯一索引可被重新使用） */
