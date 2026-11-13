@@ -1,5 +1,5 @@
 <template>
-  <view class="state-box">
+  <view class="state-box" :class="{ 'state-box--content': status === 'success' }">
     <!-- 加载中 -->
     <template v-if="status === 'loading'">
       <view class="spinner"></view>
@@ -43,3 +43,16 @@ defineProps({
 })
 defineEmits(['retry', 'action'])
 </script>
+
+<style scoped>
+/*
+ * 全局 .state-box 是 flex + align-items:center，用于把「加载/错误/空」占位内容居中。
+ * 但成功态直接把业务卡片放进槽位时，flex 居中会把卡片收缩成内容宽度
+ * （H5 上表现为一条很窄的竖列，桌面端尤其明显）。
+ * 这里让内容态回到普通块级布局，宽度交给页面自身控制。
+ */
+.state-box--content {
+  display: block;
+  padding: 0;
+}
+</style>

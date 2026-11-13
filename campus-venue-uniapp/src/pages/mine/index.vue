@@ -70,6 +70,7 @@
             <text class="text-sm text-primary" @click="loadLogs">刷新</text>
           </view>
           <StateView
+            class="logs-state"
             :status="logState"
             loading-text="正在加载信用流水…"
             :error-text="logError"
@@ -493,5 +494,9 @@ onReachBottom(() => loadMoreLogs())
 }
 .logout-btn {
   margin-top: 20rpx;
+}
+/* 卡片内嵌的「空/加载」占位不需要全局那么大的留白 */
+.logs-state :deep(.state-box) {
+  padding: 48rpx 20rpx;
 }
 </style>
