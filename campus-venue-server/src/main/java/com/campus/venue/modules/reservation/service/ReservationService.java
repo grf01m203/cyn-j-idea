@@ -91,6 +91,8 @@ public class ReservationService {
         }
         SysUser user = sysUserMapper.selectById(userId);
         creditService.assertCanReserve(user);
+        // 同一账号在同一场地、同一日期不允许时段重叠（哪怕只重叠一部分），避免自己重复占座
+        assertNoSelfOverlap(userId, dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot());
         BigDecimal pricePerHour = slotService.validateAndPrice(dto.courtId(), dto.resvDate(), dto.startSlot(), dto.endSlot());
         BigDecimal amount = slotService.calcAmount(pricePerHour, dto.startSlot(), dto.endSlot());
         boolean free = BigDecimal.ZERO.compareTo(amount) == 0;
@@ -129,8 +131,7 @@ public class ReservationService {
     /** 供候补递补 / 拼场成团使用：直接占用槽位并生成已确认预约 */
     @Transactional(rollbackFor = Exception.class)
     public Reservation createInternal(Long userId, Long courtId, LocalDate date, int startSlot, int endSlot,
-                                      int source, Long teamId, String remark, List<Long> memberIds) {
-        BigDecimal pricePerHour = slotService.validateAndPrice(courtId, date, startSlot, endSlot);
+                                      int source, Long teamId, String remark, List<Long> memberIds) {        BigDecimal pricePerHour = slotService.validateAndPrice(courtId, date, startSlot, endSlot);
         BigDecimal amount = slotService.calcAmount(pricePerHour, startSlot, endSlot);
         CreateDTO dto = new CreateDTO(courtId, date, startSlot, endSlot, null, remark);
         Reservation resv = buildReservation(userId, dto, amount, source, teamId, generateRequestId());
@@ -152,6 +153,8 @@ public class ReservationService {
     @Transactional(rollbackFor = Exception.class)
     public Reservation createPending(Long userId, Long courtId, LocalDate date, int startSlot, int endSlot,
                                      int source, Long teamId, String remark, List<Long> memberIds) {
+        // 候补递补 / 拼场成团同样受「同一账号同场地时段不重叠」约束
+        assertNoSelfOverlap(userId, courtId, date, startSlot, endSlot);
         BigDecimal pricePerHour = slotService.validateAndPrice(courtId, date, startSlot, endSlot);
         BigDecimal amount = slotService.calcAmount(pricePerHour, startSlot, endSlot);
         if (BigDecimal.ZERO.compareTo(amount) == 0) {
@@ -168,9 +171,36 @@ public class ReservationService {
         return resv;
     }
 
+    /**
+     * 同一账号在同一场地、同一日期不允许「时段重叠」的预约（含待支付订单）。
+     * 即使只重叠一部分也会拦截，并在提示中给出已有预约的时段与单号，
+     * 避免用户自己重复占座、也避免误操作。
+     */
+    private void assertNoSelfOverlap(Long userId, Long courtId, LocalDate date, int startSlot, int endSlot) {
+        List<Reservation> list = reservationMapper.selectList(Wrappers.<Reservation>lambdaQuery()
+                .eq(Reservation::getUserId, userId)
+                .eq(Reservation::getCourtId, courtId)
+                .eq(Reservation::getResvDate, date)
+                .in(Reservation::getStatus, Status.RESV_PENDING_PAY, Status.RESV_CONFIRMED, Status.RESV_SIGNED)
+                .lt(Reservation::getStartSlot, endSlot)
+                .gt(Reservation::getEndSlot, startSlot)
+                .orderByAsc(Reservation::getStartSlot)
+                .last("limit 5"));
+        if (list.isEmpty()) {
+            return;
+        }
+        Reservation exist = list.get(0);
+        String range = SlotService.slotStartTime(exist.getStartSlot()) + "~"
+                + SlotService.slotStartTime(exist.getEndSlot());
+        String state = exist.getStatus() == Status.RESV_PENDING_PAY ? "待支付" : "已确认";
+        String more = list.size() > 1 ? String.format("（另有 %d 笔重叠）", list.size() - 1) : "";
+        throw new BizException(ResultCode.RESERVE_LIMIT,
+                String.format("你在该场地已有 %s 的%s预约（单号 %s）%s，时段重叠，不能重复预约",
+                        range, state, exist.getResvNo(), more));
+    }
+
     /** 供拼场使用：支付成功后把预约置为已确认（槽位由调用方通过 allocateOnPayment 占用） */
-    public void markConfirmed(Reservation resv) {
-        resv.setStatus(Status.RESV_CONFIRMED);
+    public void markConfirmed(Reservation resv) {        resv.setStatus(Status.RESV_CONFIRMED);
         reservationMapper.updateById(resv);
     }
 

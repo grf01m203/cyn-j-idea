@@ -47,7 +47,7 @@
 
 | 方法 | 路径 | 请求 | data |
 |---|---|---|---|
-| POST | `/api/v1/reservations` | `{courtId,resvDate,startSlot,endSlot,requestId,remark}` | `{id,resvNo,status,amount,startTime,endTime,canPay,canCancel,canCheckin}`；`amount=0` 的免费场地直接返回 `status=1`（已确认，创建即占位），收费场地返回 `status=0`（**待支付，不占位**）；当前已被他人支付占用时 `code=30001`；日期/时段已过或超提前预约上限 `code=30008`；`requestId` 幂等 |
+| POST | `/api/v1/reservations` | `{courtId,resvDate,startSlot,endSlot,requestId,remark}` | `{id,resvNo,status,amount,startTime,endTime,canPay,canCancel,canCheckin}`；`amount=0` 的免费场地直接返回 `status=1`（已确认，创建即占位），收费场地返回 `status=0`（**待支付，不占位**）；当前已被他人支付占用时 `code=30001`；日期/时段已过或超提前预约上限 `code=30008`；`requestId` 幂等；**同一账号在该场地已有重叠时段预约（部分重叠也算、含待支付）时返回 `code=30008`**，提示中带已有预约时段与单号 |
 | GET | `/api/v1/reservations/my?status=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,venueName,courtName,resvDate,startTime,endTime,status,source,amount,teamId,canCancel,canCheckin,canPay}` |
 | GET | `/api/v1/reservations/{id}` | — | 同上单条 + `{members:[{userId,nickname}]}` |
 | POST | `/api/v1/reservations/{id}/pay-mock` | — | `{status}`。**支付成功那一刻才占用场地**：同一时段可有多笔待支付订单，唯一索引保证并发下只有一笔支付成功；支付时若已被他人抢先支付，返回 `code=30001` 且本单置为 `status=6`（已过期） |
