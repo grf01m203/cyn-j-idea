@@ -45,13 +45,13 @@
             <text class="resv-cd-text">{{ countdownText(item) }}</text>
           </view>
 
-          <view class="row-between resv-foot">
-            <view class="row">
+          <view class="resv-foot">
+            <view class="resv-meta">
               <text class="amount">¥{{ money(item.amount) }}</text>
               <text class="tag tag-gray source-tag" v-if="item.source">{{ sourceText(item.source) }}</text>
               <text class="tag tag-blue source-tag" v-if="item.teamId">拼场</text>
             </view>
-            <view class="row ops" @click.stop>
+            <view class="resv-ops" @click.stop>
               <button
                 v-if="item.canPay"
                 class="btn btn-primary btn-sm op"
@@ -351,10 +351,20 @@ onReachBottom(() => loadMore())
   margin-bottom: 20rpx;
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
 }
+/* 单号：flex 收缩 + 块级，才能让 ellipsis 真正生效（行内元素的 max-width 无效） */
 .resv-no {
+  display: block;
+  flex: 1;
+  min-width: 0;
   font-size: 26rpx;
   color: #4e5969;
-  max-width: 420rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.row-between > .tag {
+  flex-shrink: 0;
+  margin-left: 16rpx;
 }
 .resv-cd {
   margin-top: 12rpx;
@@ -365,23 +375,44 @@ onReachBottom(() => loadMore())
   color: #1677ff;
   font-variant-numeric: tabular-nums;
 }
+/* 标题：单行省略，避免场馆/场地名过长把卡片撑高 */
 .resv-title {
   display: block;
+  margin-top: 14rpx;
   font-size: 32rpx;
   font-weight: 600;
   color: #1f2329;
-  margin-top: 14rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .resv-line {
   display: flex;
   flex-direction: row;
+  align-items: center;
   justify-content: space-between;
   margin-top: 12rpx;
 }
+.resv-line text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.resv-line text + text {
+  margin-left: 16rpx;
+  flex-shrink: 0;
+}
+/* 底部：金额/来源一行，操作按钮单独一行，避免按钮换行导致卡片高度参差 */
 .resv-foot {
   margin-top: 20rpx;
   padding-top: 18rpx;
   border-top: 1rpx solid #f5f6f8;
+}
+.resv-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   flex-wrap: wrap;
 }
 .amount {
@@ -392,9 +423,13 @@ onReachBottom(() => loadMore())
 .source-tag {
   margin-left: 12rpx;
 }
-.ops {
-  flex-wrap: wrap;
+.resv-ops {
+  display: flex;
+  flex-direction: row;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4rpx;
 }
 .op {
   margin-left: 12rpx;
