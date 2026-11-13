@@ -51,7 +51,7 @@
 | GET | `/api/v1/reservations/my?status=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,venueName,courtName,resvDate,startTime,endTime,status,source,amount,teamId,canCancel,canCheckin,canPay}` |
 | GET | `/api/v1/reservations/{id}` | — | 同上单条 + `{members:[{userId,nickname}]}` |
 | POST | `/api/v1/reservations/{id}/pay-mock` | — | `{status}`。**支付成功那一刻才占用场地**：同一时段可有多笔待支付订单，唯一索引保证并发下只有一笔支付成功；支付时若已被他人抢先支付，返回 `code=30001` 且本单置为 `status=6`（已过期） |
-| POST | `/api/v1/reservations/{id}/cancel` | `{reason}` | 取消后的完整预约详情 `{...,status,canPay,canCancel,canCheckin}`；开始时间 + 签到宽限期（默认 15 分钟）之后返回 `code=30006`；开始前 `reservation.cancel.free.hours`（默认 2 小时）内取消不扣分，之后取消扣 3 分并置 `status=7`（逾期取消） |
+| POST | `/api/v1/reservations/{id}/cancel` | `{reason}` | 取消后的完整预约详情 `{...,status,canPay,canCancel,canCheckin}`；开始时间 + 签到宽限期（默认 15 分钟）之后返回 `code=30006`；**仅已支付（status=1）的预约**在距开始不足 `reservation.cancel.free.hours`（默认 4 小时）时取消才扣分并置 `status=7`（逾期取消）；**待支付订单取消不扣信用分**。响应额外返回 `penalty`（实际扣分，0 表示未扣分） |
 | GET | `/api/v1/admin/reservations?status=&date=&pageNum=&pageSize=` | — | 分页 `{id,resvNo,userId,userName,courtId,courtName,venueName,resvDate,startTime,endTime,startSlot,endSlot,status,source,amount,remark,createTime}` |
 | GET | `/api/v1/admin/reservations/{id}` | — | 同上单条 + `{members:[{userId,nickname,isLeader}]}` |
 | POST | `/api/v1/admin/reservations/{id}/release` | — | `null`（管理员强制释放槽位，不扣分） |

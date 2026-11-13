@@ -302,8 +302,10 @@ public class ReservationService {
             throw new BizException(ResultCode.TIME_WINDOW,
                     "预约已开始超过 " + window + " 分钟签到宽限期，无法取消");
         }
-        int freeHours = configService.getInt(ConfigKeys.RESERVATION_CANCEL_FREE_HOURS, 2);
-        boolean late = now.isAfter(resv.getStartTime().minusHours(freeHours));
+        int freeHours = configService.getInt(ConfigKeys.RESERVATION_CANCEL_FREE_HOURS, 4);
+        // 只有已支付（已确认、真正占了场地）的预约才涉及违约金；
+        // 待支付订单本来就没有占用场地，取消不应扣信用分。
+        boolean late = heldSlot && now.isAfter(resv.getStartTime().minusHours(freeHours));
         int penalty = 0;
         if (late && !admin) {
             penalty = configService.getInt(ConfigKeys.CREDIT_LATE_CANCEL_DEDUCT, 3);
@@ -325,7 +327,10 @@ public class ReservationService {
             queueServiceProvider.getObject().tryPromote(resv.getCourtId(), resv.getResvDate(),
                     resv.getStartSlot(), resv.getEndSlot());
         }
-        return toMap(resv, null, null, userId);
+        Map<String, Object> result = toMap(resv, null, null, userId);
+        // 把实际扣分返回给前端，便于提示「未支付取消不扣分」/「已扣 X 分」
+        result.put("penalty", penalty);
+        return result;
     }
 
     /** 管理员强制释放：不扣分 */

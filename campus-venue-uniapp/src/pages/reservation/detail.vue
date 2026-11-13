@@ -90,7 +90,7 @@
         <text class="kv-k">取消原因</text>
         <input class="reason-input" v-model="reason" placeholder="选填" placeholder-class="ph" />
       </view>
-      <text class="text-sm text-muted">取消可能产生违约金并影响信用分，以服务端返回为准。</text>
+      <text class="text-sm text-muted">未支付取消不扣信用分；已支付后临近开场取消才可能扣分，以服务端返回为准。</text>
     </Modal>
   </view>
 </template>

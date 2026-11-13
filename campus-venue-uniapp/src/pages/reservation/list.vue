@@ -98,7 +98,7 @@
         <input class="reason-input" v-model="reason" placeholder="选填，如：临时有事" placeholder-class="ph" />
       </view>
       <text class="text-sm text-muted">
-        临近开场取消可能产生违约记录并扣减信用分，具体以服务端返回的违约金为准。
+        未支付取消不扣信用分；已支付后、距开始不足免费取消时限（默认 4 小时）取消才会扣分，具体以服务端返回为准。
       </text>
     </Modal>
   </view>
