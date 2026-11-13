@@ -443,7 +443,11 @@ onLoad((options) => {
 
 <style scoped>
 .venue-name {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
   font-size: 36rpx;
   font-weight: 700;
   color: #1f2329;
@@ -541,8 +545,15 @@ onLoad((options) => {
   color: #8a9099;
 }
 .kv-v {
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
   font-size: 26rpx;
   color: #1f2329;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .kv-col {
   padding: 14rpx 0;

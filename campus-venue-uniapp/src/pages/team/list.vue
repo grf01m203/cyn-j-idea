@@ -48,7 +48,7 @@
           </view>
 
           <view class="row-between team-foot">
-            <text class="text-sm text-muted">发起人：{{ t.creatorName || '-' }}</text>
+            <text class="text-sm text-muted foot-text">发起人：{{ t.creatorName || '-' }}</text>
             <view class="row">
               <text class="tag tag-green" v-if="t.joined">已加入</text>
               <text class="tag tag-blue" v-if="t.isCreator">我是队长</text>
@@ -170,10 +170,14 @@ onPullDownRefresh(async () => {
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
 }
 .team-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 32rpx;
   font-weight: 600;
   color: #1f2329;
-  max-width: 400rpx;
 }
 .resv-line {
   display: flex;
@@ -207,5 +211,13 @@ onPullDownRefresh(async () => {
   margin-top: 18rpx;
   padding-top: 16rpx;
   border-top: 1rpx solid #f5f6f8;
+}
+/* 发起人过长时省略，避免与右侧按钮挤压 */
+.foot-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 </style>

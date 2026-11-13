@@ -276,10 +276,14 @@ onUnmounted(() => stopTicker())
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
 }
 .queue-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 32rpx;
   font-weight: 600;
   color: #1f2329;
-  max-width: 420rpx;
 }
 .resv-line {
   display: flex;

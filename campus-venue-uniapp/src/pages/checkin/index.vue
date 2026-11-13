@@ -279,6 +279,11 @@ onUnmounted(() => stopCountdown())
   background-color: #f7faff;
 }
 .pick-no {
+  display: block;
+  max-width: 320rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 26rpx;
   color: #1f2329;
 }

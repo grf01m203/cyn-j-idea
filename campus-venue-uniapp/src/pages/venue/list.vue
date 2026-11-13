@@ -193,10 +193,14 @@ onReachBottom(() => {
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
 }
 .venue-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 32rpx;
   font-weight: 600;
   color: #1f2329;
-  max-width: 420rpx;
 }
 .venue-addr {
   display: block;
@@ -208,7 +212,11 @@ onReachBottom(() => {
   margin-top: 14rpx;
 }
 .venue-desc {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
   font-size: 24rpx;
   color: #8a9099;
   margin-top: 12rpx;

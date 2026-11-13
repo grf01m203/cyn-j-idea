@@ -28,7 +28,7 @@
             <text class="hero-money-text">总额 ¥{{ money(detail.amount) }}</text>
             <text class="hero-money-text" v-if="shareAmount != null">人均 ¥{{ money(shareAmount) }}</text>
           </view>
-          <text class="text-sm text-muted" v-if="detail.remark">备注：{{ detail.remark }}</text>
+          <text class="text-sm text-muted remark-text" v-if="detail.remark">备注：{{ detail.remark }}</text>
         </view>
 
         <!-- 成团待支付：支付进度 + 我的支付入口 -->
@@ -507,6 +507,11 @@ onShow(() => {
   background: linear-gradient(135deg, #1677ff 0%, #4791ff 100%);
 }
 .hero-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
   font-size: 34rpx;
   font-weight: 700;
   color: #ffffff;
@@ -604,8 +609,15 @@ onShow(() => {
   color: #8a9099;
 }
 .kv-v {
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
   font-size: 26rpx;
   color: #1f2329;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .empty-inline {
   padding: 20rpx 0;
@@ -634,6 +646,10 @@ onShow(() => {
   margin-right: 20rpx;
 }
 .member-name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 28rpx;
   color: #1f2329;
 }
@@ -665,5 +681,15 @@ onShow(() => {
 }
 .bar-btn:first-child {
   margin-left: 0;
+}
+/* 备注与成员信息长文本处理 */
+.remark-text {
+  display: block;
+  margin-top: 8rpx;
+  word-break: break-word;
+  line-height: 1.6;
+}
+.member-item .flex-1 {
+  min-width: 0;
 }
 </style>
