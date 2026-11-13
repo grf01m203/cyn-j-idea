@@ -4,7 +4,7 @@
 >
 > 选题定位：一段式完成「前后端 + 数据库」「多端互动」「每人可追溯的 GitHub 提交」「部署到服务器可跨网访问」四项硬性要求。
 >
-> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea> 与 GitHub <https://github.com/grf01m203/cyn-j-idea>（v0.6.0 @ 标签 `v0.6.0`，两边均已同步；v0.5.0 @ `43d088c`；v0.4.3 @ `5f35ffe`（修复补丁 `025b15c`）；v0.4.2 @ `fc78114`）。v0.6.0 新增学生自助注册与管理员删除用户，并合入 GitHub 上游 QA 修复（签到核销管理端化、用户导出/解除黑名单、提前预约上限与开赛提醒）。
+> **交付位置**：交付包内 `source/` 目录（完整源码；`.git`、node_modules、target、dist 不入包）。远程仓库：Gitee <https://gitee.com/DABH/cyn-j-idea> 与 GitHub <https://github.com/grf01m203/cyn-j-idea>（v0.6.1 @ 标签 `v0.6.1`，两边均已同步；v0.6.0 @ `b809a34`；v0.5.0 @ `43d088c`；v0.4.3 @ `5f35ffe`（修复补丁 `025b15c`）；v0.4.2 @ `fc78114`）。v0.6.0 新增学生自助注册与管理员删除用户，并合入 GitHub 上游 QA 修复（签到核销管理端化、用户导出/解除黑名单、提前预约上限与开赛提醒）；v0.6.1 合入上游支付闭环：未支付不占位、拼场均摊支付、候补先付后占，并新增 V3/V4 数据库迁移。
 
 ---
 
