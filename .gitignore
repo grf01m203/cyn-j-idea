@@ -41,3 +41,6 @@ checks.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 本地部署运行目录（启动脚本生成）
+.local/

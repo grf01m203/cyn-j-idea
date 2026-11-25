@@ -62,9 +62,20 @@ const readSlotWindow = async (token, courtId, date, count) => {
   const r = await api('GET', `/api/v1/courts/${courtId}/slots?date=${date}`, null, token)
   if (r.code !== 0) throw new Error('时段查询失败: ' + r.message)
   const slots = r.data.slots
-  for (let i = 0; i + count <= 40; i++) {
+  // v0.6.1 未支付不占位：时段视图里的空闲不代表本账号没有在途单，
+  // 还要排除自己已有的待支付/已确认预约，否则创建会被 30008 拦住。
+  const mine = await api('GET', '/api/v1/reservations/my?pageNum=1&pageSize=200', null, token)
+  const busy = new Set()
+  for (const x of mine.data?.records || []) {
+    if (x.courtId === courtId && x.resvDate === date && [0, 1, 2].includes(x.status)) {
+      for (let i = x.startSlot; i < x.endSlot; i++) busy.add(i)
+    }
+  }
+  for (let i = 0; i + count <= slots.length; i++) {
     let ok = true
-    for (let k = 0; k < count; k++) if (slots[i + k].status !== 0) ok = false
+    for (let k = 0; k < count; k++) {
+      if (slots[i + k].status !== 0 || busy.has(slots[i + k].slotNo)) ok = false
+    }
     if (ok) return { startSlot: slots[i].slotNo, endSlot: slots[i + count - 1].slotNo + 1, label: slots[i].label }
   }
   throw new Error('未找到连续空闲时段')
@@ -120,6 +131,9 @@ async function main() {
     courtId: 4, resvDate: date, startSlot: w2.startSlot, endSlot: w2.endSlot, requestId: 'RT-' + Date.now()
   }, dev1.token)
   if (resv.code !== 0) throw new Error('创建预约失败: ' + resv.message)
+  // v0.6.1 未支付不占位：必须先支付，取消时才会释放槽位并触发候补递补
+  const payResv = await api('POST', `/api/v1/reservations/${resv.data.id}/pay-mock`, null, dev1.token)
+  if (payResv.code !== 0) throw new Error('支付预约失败: ' + payResv.message)
   const queue = await api('POST', '/api/v1/queues', {
     courtId: 4, resvDate: date, startSlot: w2.startSlot, endSlot: w2.endSlot
   }, other.token)
@@ -131,9 +145,16 @@ async function main() {
   check('D1 设备A 取消预约 -> 设备B 候补端实时收到 QUEUE_PROMOTED 推送',
     !!promoted, promoted ? `收到「${promoted.title}」` : `未收到（收到 ${wsB.messages.length} 条）`)
 
-  // E. 候补端确认递补，生成预约单
+  // E. 候补端确认递补 -> 生成待支付单 -> 支付后占位
   const confirm = await api('POST', `/api/v1/queues/${queue.data.id}/confirm`, null, other.token)
-  check('E1 候补端确认递补生成新预约单', confirm.code === 0, confirm.code === 0 ? confirm.data.resvNo : confirm.message)
+  check('E1 候补端确认递补生成待支付预约（needPay）',
+    confirm.code === 0 && confirm.data.needPay === true,
+    confirm.code === 0 ? `${confirm.data.resvNo} needPay=${confirm.data.needPay}` : confirm.message)
+  if (confirm.code === 0) {
+    const payQ = await api('POST', `/api/v1/reservations/${confirm.data.reservationId}/pay-mock`, null, other.token)
+    check('E2 候补端支付后占位成功（status=1）',
+      payQ.code === 0 && payQ.data.status === 1, `code=${payQ.code} status=${payQ.data?.status}`)
+  }
 
   wsA.ws.close()
   wsB.ws.close()

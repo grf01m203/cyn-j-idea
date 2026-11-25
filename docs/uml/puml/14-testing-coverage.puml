@@ -1,0 +1,58 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C6D2
+}
+skinparam ArrowColor #3B5B76
+title 图 14  测试分层与验收覆盖（v0.6.1）
+
+package "被测系统" {
+  component "SlotService / 领域规则" as domain
+  component "REST API\nController + Service" as api
+  component "MySQL 17 张表\n唯一索引 / 事务" as db
+  component "WebSocket\n/ws/notice" as ws
+}
+
+package "单元测试（JUnit 5，mvn test）" {
+  component "SlotServiceTest\n7 项：槽位换算、跨零点标签、计价、区间校验" as ut
+}
+
+package "接口与业务验收（Node / PowerShell）" {
+  component "smoke-test.ps1\n42 项：主链路端到端 + 权限" as smoke
+  component "feature-test.mjs\n31 项：v0.6.x 新契约" as feature
+  component "queue-push-test.mjs\n8 项：取消→递补→支付" as queue
+  component "realtime-multiclient-test.mjs\n7 项：多端在线 + 实时推送" as realtime
+}
+
+ut --> domain : 直接调用
+
+smoke --> api
+smoke --> db : 并发支付验证唯一索引
+feature --> api
+feature --> db
+queue --> api
+queue --> ws : 断言 QUEUE_PROMOTED 推送
+realtime --> api
+realtime --> ws : 断言 TEAM_INVITE 推送
+
+legend right
+  覆盖要点
+  ─────────────────────────────
+  · 防超卖：10 账号并发支付，仅 1 单成功
+  · 未支付不占位：待支付单并存，支付才写槽位
+  · 均摊支付：全员付齐才占位，否则整队失效
+  · 候补：先付后占，10 分钟窗口，超时顺延
+  · 核销：管理端权限，一次性码，重复核销 30007
+  · 消息：先落库再推送，poll(lastId) 增量补齐
+
+  全部脚本可重复运行（自动避开自身遗留的
+  待支付单），不依赖执行顺序与时间点。
+end legend
+@enduml

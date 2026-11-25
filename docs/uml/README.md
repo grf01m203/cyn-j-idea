@@ -18,6 +18,7 @@
 | 图 11 | 分层与组件架构 | [puml/11-architecture.puml](puml/11-architecture.puml) | 客户端 / 接入 / 应用 / 数据访问 / 存储五层 |
 | 图 12 | 部署拓扑 | [puml/12-deployment.puml](puml/12-deployment.puml) | Nginx + Spring Boot + MySQL + OSS，生产与本地两套 |
 | 图 13 | 活动图：完整预约流程 | [puml/13-activity-booking.puml](puml/13-activity-booking.puml) | 从选时段到核销/未签到的完整分支 |
+| 图 14 | 测试分层与验收覆盖 | [puml/14-testing-coverage.puml](puml/14-testing-coverage.puml) | 单元 / 接口 / 端到端四套脚本与被测组件的对应关系 |
 
 渲染结果在 [png/](png/)，文件名与源码一一对应。
 
@@ -42,3 +43,4 @@ plantuml -tpng puml/*.puml
 - ER 图新增拼场均摊三列、`team.status` 新状态说明、`sys_config` V4 默认值；`slot` 表注明「支付成功才写入」。
 - 时序图按「先支付后占位」「候补先付后占」「管理端核销」重画。
 - 新增状态机、架构图、部署图、活动图（v0.5.0 版本未提供）。
+- 新增图 14「测试分层与验收覆盖」，对应仓库内四套可重复执行的验收脚本（见 `scripts/local/README.md`）。
