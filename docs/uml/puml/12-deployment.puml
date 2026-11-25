@@ -1,0 +1,60 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam node {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+}
+skinparam database {
+  BackgroundColor #F2F6FA
+  BorderColor #6B7B8C
+}
+skinparam cloud {
+  BackgroundColor #F5F9FF
+  BorderColor #6B7B8C
+}
+skinparam ArrowColor #3B5B76
+title 图 12  部署拓扑（生产与本地两套并存）
+
+node "学生设备" as dev {
+  component "uni-app\n小程序 / H5 / APK" as uapp
+}
+
+node "管理员 PC" as pc {
+  component "浏览器\nVue3 管理端" as web
+}
+
+node "应用服务器（本机 / 云主机）" as srv {
+  node "Nginx  443 / 80" as nginx {
+    artifact "学生端 H5 静态资源" as h5
+    artifact "管理端静态资源" as adist
+  }
+  node "Spring Boot 单体  8080\nsystemd 守护" as boot {
+    artifact "campus-venue-server.jar" as jar
+  }
+  database "MySQL 8.0\n生产 3306 / 本地 3307" as mysql
+}
+
+cloud "阿里云 OSS（可选）\n头像 / 交付物" as oss
+
+dev --> nginx : HTTPS 443
+pc --> nginx : HTTPS 443
+uapp --> nginx : WSS /ws/notice
+web --> nginx : WSS /ws/notice
+nginx --> boot : /api/** 反向代理
+boot --> mysql : JDBC（仅 127.0.0.1）
+boot --> oss : HTTPS（未配置则降级本地磁盘）
+
+legend right
+  本地开发形态
+  ─────────────
+  两个 Vite DevServer（5273 / 5173）替代 Nginx，
+  同样代理 /api 与 /ws；MySQL 使用 3307 独立实例，
+  不影响本机已有的 3306 服务。
+
+  单实例说明
+  ─────────────
+  @Scheduled 直接运行；多实例需分布式锁（ShedLock）
+  与签到码/限流的 Redis 化。
+end legend
+@enduml

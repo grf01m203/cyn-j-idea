@@ -1,0 +1,57 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam state {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+  ArrowColor #3B5B76
+  FontSize 12
+}
+title 图 10  状态机：拼场队 Team.status 与候补队列 WaitingQueue.status
+
+state "拼场队 Team" as TeamSM {
+  state "招募中 0" as T0
+  state "人数已满 1" as T1
+  state "待付齐 4" as T4
+  state "已成团 2" as T2
+  state "已解散 3" as T3
+  state "已失效 5" as T5
+
+  [*] --> T0 : 队长发起拼场
+  T0 --> T1 : 审核通过并满员
+  T1 --> T0 : 成员退出（低于上限）
+  T0 --> T4 : 队长确认成团\n（生成待支付单）
+  T1 --> T4 : 队长确认成团
+  T4 --> T2 : 全员 pay_status=1\nallocateOnPayment 占位成功
+  T4 --> T5 : 付款超时（120 分钟）\n或时段被他人抢先支付
+  T0 --> T3 : 队长解散 / 到点未成团
+  T1 --> T3 : 队长解散 / 到点未成团
+  T2 --> [*]
+  T3 --> [*]
+  T5 --> [*]
+}
+
+state "候补队列 WaitingQueue" as QueueSM {
+  state "等待中 0" as Q0
+  state "已通知 1" as Q1
+  state "已确认 2" as Q2
+  state "已过期 3" as Q3
+  state "已取消 4" as Q4
+
+  [*] --> Q0 : 加入候补队列
+  Q0 --> Q1 : 他人释放槽位\ntryPromote：10 分钟确认窗口
+  Q1 --> Q2 : 用户确认递补\n生成待支付预约
+  Q1 --> Q3 : 10 分钟未确认\nexpireTimeout → 顺延下一位
+  Q0 --> Q4 : 用户取消
+  Q1 --> Q4 : 用户取消
+  Q2 --> Q3 : 待支付超时或时段被抢先
+  Q2 --> [*]
+  Q3 --> [*]
+  Q4 --> [*]
+}
+
+note bottom of TeamSM
+  拼场成团不再立即占位：先进入「待付齐 4」，
+  全员付清才写 reservation_slot，避免 AA 费用收不齐却占用场地。
+end note
+@enduml

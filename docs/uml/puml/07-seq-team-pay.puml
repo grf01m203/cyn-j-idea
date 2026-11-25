@@ -1,0 +1,81 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #3B5B76
+  LifeLineBorderColor #9AAAB8
+  ParticipantBackgroundColor #F2F6FA
+  ParticipantBorderColor #6B7B8C
+  GroupBackgroundColor #F7F9FB
+}
+autonumber
+title 图 7  时序图：拼场组队与均摊支付（v0.6.1）
+
+actor "队长\n（发起人）" as lead
+actor "队员\n（申请者）" as mem
+participant "TeamController" as c
+participant "TeamService" as ts
+participant "ReservationService" as rs
+participant "SlotService" as ss
+database "MySQL\nteam / team_member" as db
+participant "NoticeService" as ns
+participant "WebSocket" as ws
+
+== 组队 ==
+lead -> c : POST /api/v1/teams\n{courtId,resvDate,startSlot,endSlot,maxMembers}
+c -> ts : create(userId, dto)
+ts -> ss : validateAndPrice + isFree
+ts -> db : insert team(status=0 招募中, max_members)
+ts -> db : insert team_member(队长, status=1 已通过)
+ts --> lead : {id}
+
+mem -> c : POST /api/v1/teams/{id}/join
+c -> ts : join(userId, teamId)
+ts -> db : insert team_member(status=0 待审核)
+ts -> ns : push(TEAM_INVITE,「xx 申请加入拼场」)
+ns ->> ws : 推送队长端
+lead -> c : POST /api/v1/teams/{id}/members/{mid}/review?accept=true
+c -> ts : review(...)
+ts -> db : member.status=1；current_members++
+alt 人数达到上限
+  ts -> db : team.status=1（人数已满）
+  ts -> ns : push(TEAM_FULL,「人数已满，待队长确认成团」)
+end
+
+== 成团：生成待支付单并均摊 ==
+lead -> c : POST /api/v1/teams/{id}/confirm
+c -> ts : confirm(leaderId, teamId)
+ts -> rs : createPending(courtId, date, slots, amount)
+rs -> db : insert reservation(status=0, source=2 拼场, team_id)
+ts -> ts : shareAmount = amount ÷ 已通过人数
+ts -> db : 每个 team_member 写入 share_amount、pay_status=0
+ts -> db : team.status=4（待付齐）, reservation_id
+ts -> ns : push(「已成团，请各自支付 xx 元」)
+ts --> lead : {reservationId, status=4, shareAmount, needPay=true}
+
+== 各成员支付 ==
+mem -> c : POST /api/v1/teams/{id}/pay
+c -> ts : pay(userId, teamId)
+ts -> db : member.pay_status=1, pay_time=now
+ts -> db : count(已付) / count(已通过)
+alt 未付齐
+  ts --> mem : {paidCount=1/2, allPaid=false}
+else 全员付齐
+  ts -> ss : allocateOnPayment(reservation)
+  alt 该时段已被他人抢先支付
+    ss --> ts : 30001
+    ts -> db : team.status=5（已失效）+ 预约置为过期
+    ts -> ns : push(「时段被抢占，拼场已失效」)
+  else 占位成功
+    ts -> rs : markConfirmed(reservation)
+    ts -> db : team.status=2（已成团）
+    ts -> ns : push(「费用已付齐，场地已锁定」)
+    ts --> mem : {allPaid=true, status=2, reservationId}
+  end
+end
+
+note across
+  均摊规则：shareAmount = 预约金额 ÷ 通过审核的成员数（含队长），保留 2 位小数；
+  只有所有成员 pay_status=1 才写 reservation_slot，付款超时（默认 120 分钟）由定时任务置为已失效。
+end note
+@enduml

@@ -1,0 +1,52 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam state {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+  ArrowColor #3B5B76
+  FontSize 12
+}
+title 图 9  状态机：预约单 Reservation.status（v0.6.1）
+
+state "待支付 0" as S0
+state "已确认 1" as S1
+state "已签到 2" as S2
+state "已完成 3" as S3
+state "未签到 4" as S4
+state "已取消 5" as S5
+state "已过期 6" as S6
+state "逾期取消 7" as S7
+
+[*] --> S0 : 创建预约（收费场地）\nstatus=0，不占槽位
+[*] --> S1 : 创建预约（免费场地）\namount=0，直接占位
+
+S0 --> S1 : pay-mock 支付成功\nallocateOnPayment 插入槽位
+S0 --> S6 : 15 分钟未支付\n或被他人抢先支付
+S0 --> S5 : 用户取消\n（不扣信用分）
+S0 --> S6 : 定时任务 expireUnpaid
+
+S1 --> S2 : 管理端核销签到码\ncheckin_record 写入
+S1 --> S4 : 开始时间 + 15 分钟未核销\nmarkNoShow：释放槽位 + 扣分
+S1 --> S5 : 开始前 > 4 小时取消\n（免费取消）
+S1 --> S7 : 开始前 ≤ 4 小时取消\n（扣分，逾期取消）
+S1 --> S5 : 管理员强制释放\n（不扣分）
+
+S2 --> S3 : 结束时间到\nfinishEnded：＋2 分
+S4 --> [*]
+S5 --> [*]
+S6 --> [*]
+S7 --> [*]
+S3 --> [*]
+
+note right of S0
+  待支付单**不写** reservation_slot；
+  同一时段可并存多笔，唯一索引保证
+  只有一笔支付成功，其余置为 6 并通知。
+end note
+
+note left of S4
+  未签到 / 逾期取消 / 取消
+  都会触发候补递补 tryPromote
+end note
+@enduml

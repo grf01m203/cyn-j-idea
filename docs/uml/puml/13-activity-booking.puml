@@ -1,0 +1,54 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam activity {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+  DiamondBackgroundColor #FFFDF5
+  ArrowColor #3B5B76
+}
+title 图 13  活动图：一次完整预约（创建 → 支付占位 → 核销 → 结束）
+
+start
+:浏览场馆与场地;
+:查看当日时段视图\n（仅开放窗口，四态）;
+:选择连续时段;
+if (满足开放规则？\n粒度对齐 / 时长上限 / 提前天数) then (否)
+  :返回 30008 不可预约;
+  stop
+else (是)
+endif
+if (本账号在该场地已有重叠预约？) then (是)
+  :返回 30008 并提示已有单号;
+  stop
+else (否)
+endif
+:创建预约单（status=0 待支付）\n不写槽位;
+
+if (免费场地？) then (是)
+  :直接占位，status=1;
+else (否)
+  :模拟支付 pay-mock;
+  if (reservation_slot 唯一索引插入成功？) then (否)
+    :status=6 已过期\n返回 30001「已被抢先支付」;
+    stop
+  else (是)
+    :status=1 已确认;
+    :作废同时段其他待支付单\n（拼场置为失效、候补顺延）;
+  endif
+endif
+
+:开始前 15 分钟 ~ 开始后 15 分钟\n学生取 6 位一次性签到码;
+:管理端扫码核销;
+if (核销成功？) then (是)
+  :写 checkin_record，status=2 已签到;
+  :信用 +2;
+  :结束后 status=3 已完成;
+  stop
+else (否 / 超时)
+  :status=4 未签到;
+  :扣信用分 + 释放槽位;
+  :触发候补递补（queue.tryPromote）;
+  stop
+endif
+@enduml

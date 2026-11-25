@@ -1,0 +1,228 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam nodesep 28
+skinparam ranksep 42
+skinparam ArrowColor #4A6E8A
+skinparam class {
+  BackgroundColor #FCFCFA
+  BorderColor #6B7B8C
+  HeaderBackgroundColor #E8EFF5
+}
+title 图 2  领域模型类图（业务实体，v0.6.1）
+hide empty members
+
+class Venue {
+  - id : Long
+  - name : String
+  - address : String
+  - openTime : LocalTime
+  - closeTime : LocalTime
+  - status : Integer
+}
+
+class VenueCourt {
+  - id : Long
+  - venueId : Long
+  - name : String
+  - type : String
+  - capacity : Integer
+  - pricePerHour : BigDecimal
+  - status : Integer
+}
+
+class VenueOpenRule {
+  - id : Long
+  - courtId : Long
+  - weekday : Integer
+  - startTime : LocalTime
+  - endTime : LocalTime
+  - slotMinutes : Integer
+  - maxDuration : Integer
+  - price : BigDecimal
+}
+
+class Reservation {
+  - id : Long
+  - resvNo : String
+  - userId : Long
+  - courtId : Long
+  - resvDate : LocalDate
+  - startTime : LocalDateTime
+  - endTime : LocalDateTime
+  - startSlot : Integer
+  - endSlot : Integer
+  - status : Integer
+  - source : Integer
+  - teamId : Long
+  - amount : BigDecimal
+  - requestId : String
+}
+
+class ReservationSlot {
+  - id : Long
+  - courtId : Long
+  - slotDate : LocalDate
+  - slotNo : Integer
+  - reservationId : Long
+  + of(courtId, date, slotNo, resvId)$ : ReservationSlot
+}
+
+class ReservationMember {
+  - id : Long
+  - reservationId : Long
+  - userId : Long
+  - isLeader : Integer
+  - arriveTime : LocalDateTime
+}
+
+class Team {
+  - id : Long
+  - courtId : Long
+  - creatorId : Long
+  - resvDate : LocalDate
+  - startSlot : Integer
+  - endSlot : Integer
+  - maxMembers : Integer
+  - currentMembers : Integer
+  - status : Integer
+  - reservationId : Long
+  - expireTime : LocalDateTime
+}
+
+class TeamMember {
+  - id : Long
+  - teamId : Long
+  - userId : Long
+  - status : Integer
+  - isLeader : Integer
+  - shareAmount : BigDecimal
+  - payStatus : Integer
+  - payTime : LocalDateTime
+  - reviewTime : LocalDateTime
+}
+
+class WaitingQueue {
+  - id : Long
+  - courtId : Long
+  - userId : Long
+  - resvDate : LocalDate
+  - startSlot : Integer
+  - endSlot : Integer
+  - status : Integer
+  - expireTime : LocalDateTime
+  - reservationId : Long
+}
+
+class CheckinRecord {
+  - id : Long
+  - reservationId : Long
+  - userId : Long
+  - courtId : Long
+  - checkinTime : LocalDateTime
+  - channel : String
+  - ip : String
+}
+
+class CreditLog {
+  - id : Long
+  - userId : Long
+  - changeValue : Integer
+  - afterScore : Integer
+  - reason : String
+  - bizType : String
+  - bizId : Long
+}
+
+class Notification {
+  - id : Long
+  - userId : Long
+  - type : String
+  - title : String
+  - content : String
+  - bizType : String
+  - bizId : Long
+  - readFlag : Integer
+}
+
+class SysUser {
+  - id : Long
+  - username : String
+  - password : String
+  - nickname : String
+  - studentNo : String
+  - avatar : String
+  - creditScore : Integer
+  - violateCount : Integer
+  - blacklistUntil : LocalDateTime
+  - status : Integer
+}
+
+enum ReservationStatus {
+  PENDING_PAY = 0
+  CONFIRMED = 1
+  SIGNED = 2
+  FINISHED = 3
+  NO_SHOW = 4
+  CANCELLED = 5
+  EXPIRED = 6
+  CANCELLED_LATE = 7
+}
+
+enum TeamStatus {
+  RECRUITING = 0
+  FULL = 1
+  CONFIRMED = 2
+  DISSOLVED = 3
+  PENDING_PAY = 4
+  INVALID = 5
+}
+
+enum QueueStatus {
+  WAITING = 0
+  NOTIFIED = 1
+  CONFIRMED = 2
+  EXPIRED = 3
+  CANCELLED = 4
+}
+
+enum MemberStatus {
+  PENDING = 0
+  APPROVED = 1
+  REJECTED = 2
+  QUIT = 3
+}
+
+enum PayStatus {
+  UNPAID = 0
+  PAID = 1
+}
+
+Venue "1" *-- "0..*" VenueCourt
+VenueCourt "1" -- "0..*" VenueOpenRule
+VenueCourt "1" -- "0..*" Reservation
+VenueCourt "1" -- "0..*" Team
+VenueCourt "1" -- "0..*" WaitingQueue
+
+SysUser "1" -- "0..*" Reservation
+SysUser "1" -- "0..*" Team
+SysUser "1" -- "0..*" WaitingQueue
+SysUser "1" -- "0..*" CheckinRecord
+SysUser "1" -- "0..*" CreditLog
+SysUser "1" -- "0..*" Notification
+
+Reservation "1" *-- "0..*" ReservationSlot
+Reservation "1" *-- "0..*" ReservationMember
+Reservation "1" -- "0..1" CheckinRecord
+
+Team "1" *-- "1..*" TeamMember
+Team "0..1" -- "1" Reservation
+WaitingQueue "0..1" -- "0..1" Reservation
+
+Reservation -[hidden]- ReservationStatus
+Team -[hidden]- TeamStatus
+WaitingQueue -[hidden]- QueueStatus
+TeamMember -[hidden]- MemberStatus
+TeamMember -[hidden]- PayStatus
+@enduml

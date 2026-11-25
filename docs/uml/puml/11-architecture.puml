@@ -1,0 +1,62 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor #F7FAFC
+  BorderColor #6B7B8C
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #B9C6D2
+}
+skinparam ArrowColor #3B5B76
+left to right direction
+title 图 11  系统分层与组件架构（模块化单体）
+
+package "客户端层" {
+  component "学生端 uni-app\n小程序 / H5 / APK" as app
+  component "管理端 Web\nVue3 + Element Plus" as admin
+}
+
+package "接入层" {
+  component "Nginx / Vite DevServer\nHTTPS · 静态资源 · 反向代理" as gw
+}
+
+package "应用层  Spring Boot 3.2.12" {
+  component "Controller 层\nAuth · Venue · Reservation · Team\nQueue · Checkin · Credit · Notice · Stat" as ctrl
+  component "Service 层\n业务编排 · 事务边界 · 状态机" as svc
+  component "WebSocket Handler\n/ws/notice" as ws
+  component "@Scheduled 定时任务\nno-show · 过期 · 提醒 · 递补 · 拼场失效" as task
+  component "横切能力\nSa-Token · AOP 日志 · 全局异常 · Knife4j" as cross
+}
+
+package "数据访问层" {
+  component "MyBatis-Plus Mapper\n分页插件 · 逻辑删除" as mapper
+}
+
+database "MySQL 8.0\n17 张表 · uk_court_date_slot" as db
+component "本地磁盘 / OSS（可选）" as storage
+component "Redis（可选，缺失即降级）" as redis
+
+app --> gw : HTTPS / WSS
+admin --> gw : HTTPS / WSS
+gw --> ctrl : /api/**
+gw --> ws : /ws/**
+ctrl --> svc
+svc --> mapper
+mapper --> db : JDBC
+svc --> ws : 先落库再推送
+task --> svc
+cross ..> ctrl
+svc --> storage
+svc -.-> redis
+
+legend right
+  分层依赖规则
+  ─────────────
+  Controller 不直连 Mapper；
+  跨模块只经 Service 调用；
+  涉及额度的写操作必须「事务 + 唯一索引」双保险。
+end legend
+@enduml

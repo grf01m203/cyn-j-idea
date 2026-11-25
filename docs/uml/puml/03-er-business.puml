@@ -1,0 +1,178 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 38
+skinparam ranksep 55
+skinparam entity {
+  BackgroundColor #FCFCFA
+  BorderColor #6B7B8C
+  HeaderBackgroundColor #E8EFF5
+  FontSize 12
+}
+hide circle
+hide empty methods
+title 图 3  业务数据 ER 图（场馆 / 预约 / 拼场 / 候补 / 签到，v0.6.1）
+
+entity "venue 场馆" as venue {
+  * id : BIGINT <<PK>>
+  --
+  * name : VARCHAR(80)
+  address : VARCHAR(200)
+  * open_time : TIME
+  * close_time : TIME
+  phone : VARCHAR(20)
+  * status : TINYINT
+}
+
+entity "venue_court 场地" as court {
+  * id : BIGINT <<PK>>
+  --
+  * venue_id : BIGINT <<FK>>
+  * name : VARCHAR(80)
+  * type : VARCHAR(30)
+  * capacity : INT
+  * price_per_hour : DECIMAL(10,2)
+  * status : TINYINT
+}
+
+entity "venue_open_rule 开放规则" as rule {
+  * id : BIGINT <<PK>>
+  --
+  * court_id : BIGINT <<FK>>
+  * weekday : TINYINT
+  * start_time : TIME
+  * end_time : TIME
+  * slot_minutes : SMALLINT
+  * max_duration : SMALLINT
+  * price : DECIMAL(10,2)
+  * status : TINYINT
+}
+
+entity "reservation 预约单" as reservation {
+  * id : BIGINT <<PK>>
+  --
+  * resv_no : VARCHAR(32) <<UK>>
+  * user_id : BIGINT <<FK>>
+  * court_id : BIGINT <<FK>>
+  * resv_date : DATE
+  * start_time : DATETIME
+  * end_time : DATETIME
+  * start_slot : SMALLINT
+  * end_slot : SMALLINT
+  * slot_count : SMALLINT
+  * status : TINYINT
+  * source : TINYINT
+  team_id : BIGINT <<FK>>
+  * amount : DECIMAL(10,2)
+  * request_id : VARCHAR(64) <<UK>>
+  cancel_time : DATETIME
+  cancel_reason : VARCHAR(255)
+}
+
+entity "reservation_slot 槽位" as slot {
+  * id : BIGINT <<PK>>
+  --
+  * court_id : BIGINT <<FK>>
+  * slot_date : DATE
+  * slot_no : SMALLINT
+  * reservation_id : BIGINT <<FK>>
+  * status : TINYINT
+  .. 唯一索引：防超卖 ..
+  <<uk_court_date_slot>>
+}
+
+entity "reservation_member 预约成员" as rmember {
+  * id : BIGINT <<PK>>
+  --
+  * reservation_id : BIGINT <<FK>>
+  * user_id : BIGINT <<FK>>
+  * is_leader : TINYINT
+  arrive_time : DATETIME
+}
+
+entity "team 拼场队" as team {
+  * id : BIGINT <<PK>>
+  --
+  * court_id : BIGINT <<FK>>
+  * creator_id : BIGINT <<FK>>
+  * resv_date : DATE
+  * start_slot : SMALLINT
+  * end_slot : SMALLINT
+  * max_members : TINYINT
+  * current_members : TINYINT
+  * status : TINYINT
+  reservation_id : BIGINT <<FK>>
+  expire_time : DATETIME
+}
+
+entity "team_member 拼场成员" as tmember {
+  * id : BIGINT <<PK>>
+  --
+  * team_id : BIGINT <<FK>>
+  * user_id : BIGINT <<FK>>
+  * status : TINYINT
+  * is_leader : TINYINT
+  share_amount : DECIMAL(10,2)
+  * pay_status : TINYINT
+  pay_time : DATETIME
+  join_time : DATETIME
+  review_time : DATETIME
+}
+
+entity "waiting_queue 候补队列" as queue {
+  * id : BIGINT <<PK>>
+  --
+  * court_id : BIGINT <<FK>>
+  * user_id : BIGINT <<FK>>
+  * resv_date : DATE
+  * start_slot : SMALLINT
+  * end_slot : SMALLINT
+  * status : TINYINT
+  expire_time : DATETIME
+  reservation_id : BIGINT <<FK>>
+}
+
+entity "checkin_record 签到记录" as checkin {
+  * id : BIGINT <<PK>>
+  --
+  * reservation_id : BIGINT <<UK>>
+  * user_id : BIGINT <<FK>>
+  * court_id : BIGINT <<FK>>
+  * checkin_time : DATETIME
+  * channel : VARCHAR(20)
+  ip : VARCHAR(64)
+}
+
+venue ||--o{ court
+court ||--o{ rule
+court ||--o{ reservation
+court ||--o{ team
+court ||--o{ queue
+
+reservation ||--|{ slot
+reservation ||--o{ rmember
+reservation ||--o| checkin
+reservation |o--o| team
+reservation |o--o| queue
+
+team ||--|{ tmember
+
+note bottom of slot
+  uk_court_date_slot (court_id, slot_date, slot_no)
+  v0.6.1：待支付单不写此处，**支付成功那刻**才插入；
+  任一槽位重复即 DuplicateKeyException → 整单回滚（30001）
+end note
+
+note bottom of tmember
+  拼场均摊（V3 迁移新增）
+  share_amount 本成员应付；pay_status 0未付/1已付
+  全员 pay_status=1 才写 reservation_slot 占位
+end note
+
+note bottom of reservation
+  所有表均含 create_time / update_time；
+  venue、venue_court、venue_open_rule、reservation、
+  team 另含 deleted（MyBatis-Plus 逻辑删除）
+end note
+@enduml
