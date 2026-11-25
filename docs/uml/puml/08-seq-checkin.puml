@@ -1,0 +1,67 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #3B5B76
+  LifeLineBorderColor #9AAAB8
+  ParticipantBackgroundColor #F2F6FA
+  ParticipantBorderColor #6B7B8C
+  GroupBackgroundColor #F7F9FB
+}
+autonumber
+title 图 8  时序图：签到（学生取一次性码 · 管理端核销）
+
+actor "学生" as stu
+actor "核验人员\n（管理端）" as adm
+participant "CheckinController" as c
+participant "CheckinService\n内存码表/限流" as cs
+database "MySQL\nreservation / checkin_record" as db
+participant "CreditService" as cr
+participant "NoticeService" as ns
+participant "WebSocket" as ws
+
+== 取码 ==
+stu -> c : POST /api/v1/checkin/code {reservationId}
+c -> cs : code(userId, reservationId)
+cs -> db : select 预约
+cs -> cs : 校验归属、status=1（已确认）
+cs -> cs : 校验签到窗口\n[开始-15min, 开始+15min]
+alt 不在窗口 / 状态不符
+  cs --> c : 30006 / 30009
+  c --> stu : 错误提示
+else 在窗口内
+  cs -> cs : 限流检查（按 userId：10 分钟内 5 次失败 → 锁 10 分钟，30011）
+  cs -> cs : SecureRandom 生成 6 位数字码\n写入 ConcurrentHashMap，TTL 60s
+  cs --> c : {code, expireAt, expireSeconds=60}
+  c --> stu : 展示数字码 + 离屏二维码
+end
+
+== 核销（管理端权限）==
+adm -> c : POST /api/v1/checkin/scan {code}
+c -> c : Sa-Token 校验角色 VENUE_ADMIN\n（学生调用 → 20003）
+c -> cs : scan(operatorId, code, ip)
+cs -> cs : 取码并**立即从内存移除**（一次性）
+alt 码不存在 / 已过期
+  cs -> cs : failAttempt(limitKey)
+  cs --> c : 30007「签到码已过期，请重新生成」
+else 码已使用（5 分钟内重复提交）
+  cs --> c : 30007「签到码已使用，请勿重复提交」
+else 码有效
+  cs -> db : insert checkin_record\n(uk_resv 保证一单一签)
+  alt 唯一索引冲突
+    cs --> c : 30009「该预约已签到」
+  else 写入成功
+    cs -> db : update reservation.status=2（已签到）
+    cs -> cr : change(+2, "按时签到")
+    cs -> ns : push(CHECKIN_REMIND,「签到成功」)
+    ns ->> ws : 推送学生端
+    cs --> c : {reservationId, resvNo, status=2, checkinTime}
+    c --> adm : code=0
+  end
+end
+
+note across
+  签到码为单实例内存存储（集群部署需改 Redis）；核销成功即从内存删除，截图复用无效。
+  连续错误按登录用户计数并锁定，避免 X-Forwarded-For 伪造。
+end note
+@enduml

@@ -1,0 +1,79 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #3B5B76
+  LifeLineBorderColor #9AAAB8
+  ParticipantBackgroundColor #F2F6FA
+  ParticipantBorderColor #6B7B8C
+  GroupBackgroundColor #F7F9FB
+}
+autonumber
+title 图 6  时序图：取消预约 → 候补递补（v0.6.1 先付后占）
+
+actor "学生A\n（占位者）" as a
+actor "学生B\n（候补者）" as b
+participant "ReservationController" as c
+participant "ReservationService" as rs
+participant "SlotService" as ss
+participant "QueueService" as qs
+participant "SysConfigService" as cfg
+database "MySQL" as db
+participant "NoticeService" as ns
+participant "WebSocket" as ws
+
+b -> qs : POST /api/v1/queues\n{courtId,resvDate,slots}
+qs -> db : insert waiting_queue(status=0 等待中)
+qs --> b : {id, position}
+
+a -> c : POST /api/v1/reservations/{id}/cancel
+c -> rs : cancel(userId, id, reason, admin=false)
+rs -> db : 取预约
+rs -> cfg : 读取签到宽限 / 免费取消时限
+rs -> rs : 仅 status∈{0,1} 可取消\n（开始时间超过签到宽限后拒绝）
+
+alt 已支付且距开始 < 免费时限（4h）
+  rs -> rs : penalty = credit.late.cancel.deduct
+  rs -> db : update status=7（逾期取消）
+  rs -> ns : push(「取消成功，扣减信用分 x」)
+else 待支付单（不占位）
+  rs -> db : update status=5（已取消）
+  note right of rs
+    待支付取消**不扣分**
+    （penalty=0）
+  end note
+end
+
+rs -> ss : release(reservationId)
+ss -> db : delete reservation_slot where reservation_id = ?
+note right of ss
+  物理删除，唯一索引立即可复用
+end note
+
+rs -> qs : tryPromote(courtId, date, startSlot, endSlot)
+qs -> db : 取该场地该日 status=0 的队首（按 id 升序）
+alt 存在覆盖该时段的候补
+  qs -> db : update status=1（已通知）, expire_time = now + 10min
+  qs -> ns : push(QUEUE_PROMOTED,「已有空位，请在 10 分钟内确认」)
+  ns ->> ws : 秒级推送到学生B
+  ws --> b : QUEUE_PROMOTED
+end
+
+b -> qs : POST /api/v1/queues/{id}/confirm
+qs -> rs : createPending(userId, ...)（生成待支付单，不占位）
+rs -> db : insert reservation(status=0)
+qs -> db : waiting_queue.status=2, reservation_id
+qs -> ns : push(「递补成功，请完成支付」)
+qs --> b : {reservationId, needPay=true, amount}
+
+b -> rs : POST /api/v1/reservations/{id}/pay-mock
+rs -> ss : allocateOnPayment(...)
+alt 期间被他人抢先支付
+  rs -> db : status=6 + 候补记录置为过期并顺延下一位
+  rs --> b : 30001
+else 占位成功
+  rs -> db : status=1
+  rs -> ns : push(「支付成功，场地已保留」)
+  rs --> b : ok
+end
+@enduml

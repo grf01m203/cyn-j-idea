@@ -1,0 +1,78 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam sequence {
+  ArrowColor #3B5B76
+  LifeLineBorderColor #9AAAB8
+  ParticipantBackgroundColor #F2F6FA
+  ParticipantBorderColor #6B7B8C
+  GroupBackgroundColor #F7F9FB
+}
+autonumber
+title 图 5  时序图：预约创建与支付（未支付不占位 · 唯一索引防超卖）
+
+actor "学生端\nuni-app H5" as app
+participant "ReservationController" as c
+participant "ReservationService" as rs
+participant "SlotService" as ss
+participant "CreditService / SysConfig" as cfg
+database "MySQL\nreservation / reservation_slot" as db
+participant "QueueService" as qs
+participant "NoticeService" as ns
+participant "WebSocket" as ws
+
+== 创建：只生成待支付单 ==
+app -> c : POST /api/v1/reservations\n{courtId,resvDate,startSlot,endSlot,requestId}
+c -> rs : create(userId, dto)
+rs -> db : select ... where request_id = ?
+alt 命中幂等（同一 requestId）
+  rs --> c : 原预约详情
+  c --> app : code=0
+else 新请求
+  rs -> cfg : assertCanReserve(user)（信用分/黑名单）
+  rs -> ss : validateAndPrice(courtId, date, start, end)
+  ss --> rs : pricePerHour（校验开放规则/粒度对齐/提前天数/时长上限）
+  rs -> db : select 同场地同日重叠预约（含待支付）
+  alt 与本账号已有预约重叠
+    rs --> c : BizException 30008「时段重叠」
+    c --> app : code=30008 + 已有单号
+  else 无重叠
+    rs -> db : insert reservation(status=0 待支付, amount)
+    note right of db
+      此时**不写** reservation_slot
+      —— 待支付不占位
+    end note
+    rs -> ns : push(RESV_CREATED,「预约待支付」)
+    ns ->> ws : 推送该用户全部在线端
+    rs --> c : {id, resvNo, status=0, amount, canPay=true}
+    c --> app : code=0
+  end
+end
+
+== 支付：此刻才占位 ==
+app -> c : POST /api/v1/reservations/{id}/pay-mock
+c -> rs : payMock(userId, id)
+rs -> rs : 校验归属 + status=0
+rs -> ss : allocateOnPayment(...)（REQUIRES_NEW 独立事务）
+ss -> db : insert reservation_slot ×N
+alt 唯一索引冲突 uk_court_date_slot
+  ss --> rs : DuplicateKeyException → 30001
+  rs -> db : 本单 status=6（已过期）+ 关联候补顺延
+  rs --> c : BizException 30001
+  c --> app : code=30001「已被他人抢先支付」
+else 插入成功（本单赢得该时段）
+  ss --> rs : ok
+  rs -> db : update status=1（已确认）
+  rs -> db : 作废同场地同时段其他待支付单（含拼场单）
+  rs -> qs : confirmByReservation(id)（候补递补单标记完成）
+  rs -> ns : push(「支付成功，场地已为你保留」)
+  ns ->> ws : 推送
+  rs --> c : {status=1, canCheckin...}
+  c --> app : code=0
+end
+
+note across
+  并发下两笔待支付单可同时存在，但只有一笔能插入 reservation_slot；
+  失败方返回 30001 且订单置为 6，不会出现「付了钱没有场地」。
+end note
+@enduml

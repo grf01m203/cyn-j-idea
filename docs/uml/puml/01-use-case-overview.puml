@@ -1,0 +1,79 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor #FDFDF5
+  BorderColor #555555
+}
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+}
+left to right direction
+title 图 1  系统总用例图（v0.6.1）
+
+actor "学生\nSTUDENT" as stu
+actor "场馆管理员\nVENUE_ADMIN" as vadm
+actor "系统管理员\nSYS_ADMIN" as sadm
+actor "定时任务\n@Scheduled" as timer <<system>>
+
+rectangle "CampusVenue 校园场馆预约与拼场组队系统" {
+
+  package "学生端用例" {
+    usecase "自助注册 / 登录" as U0
+    usecase "浏览场馆与时段" as U1
+    usecase "在线预约与支付" as U2
+    usecase "拼场组队（均摊支付）" as U3
+    usecase "候补排队（先付后占）" as U4
+    usecase "亮码签到" as U5
+    usecase "信用分与消息" as U6
+  }
+
+  package "管理端用例" {
+    usecase "场馆 / 场地 / 规则维护" as M1
+    usecase "预约与候补监管" as M2
+    usecase "拼场监管" as M3
+    usecase "统计看板" as M4
+    usecase "用户管理（删除/黑名单/导出）" as M5
+    usecase "扫码核销签到" as M7
+    usecase "操作日志审计" as M6
+  }
+
+  package "自动任务用例" {
+    usecase "超时未签到判定" as T1
+    usecase "待支付过期释放" as T2
+    usecase "候补递补顺延" as T3
+    usecase "拼场到期解散" as T4
+    usecase "拼场付款超时失效" as T6
+    usecase "开场前提醒" as T7
+    usecase "履约完成加分" as T5
+  }
+}
+
+stu --> U0
+stu --> U1
+stu --> U2
+stu --> U3
+stu --> U4
+stu --> U5
+stu --> U6
+
+vadm --> M1
+vadm --> M2
+vadm --> M3
+vadm --> M4
+vadm --> M7
+vadm --> M6
+
+sadm --> M4
+sadm --> M5
+sadm --> M6
+
+timer --> T1
+timer --> T2
+timer --> T3
+timer --> T4
+timer --> T5
+timer --> T6
+timer --> T7
+@enduml

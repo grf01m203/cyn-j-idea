@@ -1,0 +1,116 @@
+@startuml
+skinparam dpi 120
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 55
+skinparam entity {
+  BackgroundColor #FCFCFA
+  BorderColor #6B7B8C
+  HeaderBackgroundColor #E8EFF5
+  FontSize 12
+}
+hide circle
+hide empty methods
+title 图 4  系统与消息 ER 图（账号 / 权限 / 参数 / 日志 / 消息 / 信用，v0.6.1）
+
+entity "sys_user 系统用户" as user {
+  * id : BIGINT <<PK>>
+  --
+  * username : VARCHAR(50) <<UK>>
+  * password : VARCHAR(100)
+  * nickname : VARCHAR(50)
+  student_no : VARCHAR(30) <<UK>>
+  phone : VARCHAR(20)
+  avatar : VARCHAR(255)
+  * credit_score : INT
+  * violate_count : INT
+  blacklist_until : DATETIME
+  * status : TINYINT
+  * deleted : TINYINT
+}
+
+entity "sys_role 角色" as role {
+  * id : BIGINT <<PK>>
+  --
+  * role_code : VARCHAR(30) <<UK>>
+  * role_name : VARCHAR(50)
+  remark : VARCHAR(255)
+}
+
+entity "sys_user_role 用户角色" as user_role {
+  * id : BIGINT <<PK>>
+  --
+  * user_id : BIGINT <<FK>>
+  * role_id : BIGINT <<FK>>
+}
+
+entity "sys_config 系统参数" as config {
+  * id : BIGINT <<PK>>
+  --
+  * config_key : VARCHAR(60) <<UK>>
+  * config_value : VARCHAR(200)
+  remark : VARCHAR(255)
+}
+
+entity "oper_log 操作日志" as operlog {
+  * id : BIGINT <<PK>>
+  --
+  user_id : BIGINT <<FK>>
+  username : VARCHAR(50)
+  module : VARCHAR(50)
+  action : VARCHAR(50)
+  method : VARCHAR(200)
+  params : TEXT
+  ip : VARCHAR(64)
+  cost_ms : BIGINT
+}
+
+entity "notification 消息中心" as notice {
+  * id : BIGINT <<PK>>
+  --
+  * user_id : BIGINT <<FK>>
+  * type : VARCHAR(40)
+  * title : VARCHAR(100)
+  * content : VARCHAR(500)
+  biz_type : VARCHAR(30)
+  biz_id : BIGINT
+  * read_flag : TINYINT
+  read_time : DATETIME
+}
+
+entity "credit_log 信用分流水" as credit {
+  * id : BIGINT <<PK>>
+  --
+  * user_id : BIGINT <<FK>>
+  * change_value : INT
+  * after_score : INT
+  * reason : VARCHAR(100)
+  biz_type : VARCHAR(30)
+  biz_id : BIGINT
+}
+
+user ||--o{ user_role
+role ||--o{ user_role
+user |o--o{ operlog
+user ||--o{ notice
+user ||--o{ credit
+
+note right of config
+  关键参数（V4 默认值）
+  ─────────────────────────
+  credit.violate.deduct   = 3
+  credit.finish.add       = 2
+  credit.blacklist.count  = 4
+  credit.blacklist.days   = 3
+  reservation.cancel.free.hours = 4
+  reservation.max.advance.days  = 7
+  reservation.remind.minutes    = 30
+  checkin.window.minutes        = 15
+  team.pay.timeout.minutes      = 120
+end note
+
+note bottom of notice
+  idx_user_read_time (user_id, read_flag, id) 支撑未读数与增量轮询
+end note
+@enduml
